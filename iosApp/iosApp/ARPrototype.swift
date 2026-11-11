@@ -2,6 +2,7 @@ import SwiftUI
 import ARKit
 import SceneKit
 import Vision
+import simd
 
 // MARK: - Prototipo RA-0 (iOS)
 // Objetivo: comprobar que (1) se detecta un mazo como objeto (rectángulo ~63x88 mm) sin usar el dorso como patrón y
@@ -93,6 +94,8 @@ struct ARSceneView: UIViewRepresentable {
         private var busy = false
         private var lastDetection: TimeInterval = 0
         private var deckAnchor: ARAnchor?
+        private var stableCount = 0
+        private var lastCenter: simd_float3?
 
         init(model: ARModel) { self.model = model }
 
@@ -107,6 +110,8 @@ struct ARSceneView: UIViewRepresentable {
             guard let view = view else { return }
             placed = false
             deckAnchor = nil
+            stableCount = 0
+            lastCenter = nil
             model.status = "Buscando el mazo…"
             let config = ARWorldTrackingConfiguration()
             config.planeDetection = [.horizontal]
@@ -153,7 +158,7 @@ struct ARSceneView: UIViewRepresentable {
             let request = VNDetectRectanglesRequest()
             request.minimumAspectRatio = 0.3
             request.maximumAspectRatio = 1.0
-            request.minimumSize = 0.08
+            request.minimumSize = 0.05
             request.minimumConfidence = 0.6
             request.quadratureTolerance = 30
             request.maximumObservations = 3
@@ -168,39 +173,82 @@ struct ARSceneView: UIViewRepresentable {
             }
         }
 
+        /// Posición en el mundo de un punto de la vista (raycast sobre superficie horizontal, o cualquiera si no hay).
+        private func worldHit(_ point: CGPoint, in view: ARSCNView) -> ARRaycastResult? {
+            if let q = view.raycastQuery(from: point, allowing: .estimatedPlane, alignment: .horizontal),
+               let r = view.session.raycast(q).first { return r }
+            return nil
+        }
+
         private func finishDetection(_ observations: [VNRectangleObservation], imgW: CGFloat, imgH: CGFloat,
                                      transform: CGAffineTransform, size: CGSize) {
             busy = false
             guard !placed, let view = view else { return }
 
-            // Nos quedamos con el rectángulo cuya proporción se parece a la de una baraja (63x88 mm = 0,72).
-            var best: VNRectangleObservation?
-            var bestDiff = CGFloat.greatestFiniteMagnitude
-            for o in observations {
-                let w = hypot((o.topRight.x - o.topLeft.x) * imgW, (o.topRight.y - o.topLeft.y) * imgH)
-                let h = hypot((o.bottomLeft.x - o.topLeft.x) * imgW, (o.bottomLeft.y - o.topLeft.y) * imgH)
-                if w <= 0 || h <= 0 { continue }
-                let ratio = min(w, h) / max(w, h)
-                let diff = abs(ratio - 0.72)
-                if ratio > 0.5 && ratio < 0.95 && diff < bestDiff { best = o; bestDiff = diff }
+            // Vision (origen abajo-izquierda) → imagen (arriba-izquierda) → vista.
+            func toView(_ p: CGPoint) -> CGPoint {
+                let n = CGPoint(x: p.x, y: 1 - p.y).applying(transform)
+                return CGPoint(x: n.x * size.width, y: n.y * size.height)
             }
-            guard let o = best else {
-                model.status = "Buscando el mazo…"
+            func pos(_ r: ARRaycastResult) -> simd_float3 {
+                let c = r.worldTransform.columns.3
+                return simd_float3(c.x, c.y, c.z)
+            }
+
+            var found: simd_float4x4?
+            var lastDims = ""
+            for o in observations {
+                let corners = [o.topLeft, o.topRight, o.bottomLeft, o.bottomRight].map(toView)
+                let hits = corners.compactMap { worldHit($0, in: view) }
+                if hits.count < 4 { continue }
+                let p = hits.map(pos)
+                let e1 = p[1] - p[0]   // arriba-izquierda → arriba-derecha
+                let e2 = p[2] - p[0]   // arriba-izquierda → abajo-izquierda
+                let l1 = simd_length(e1)
+                let l2 = simd_length(e2)
+                let shortLen = min(l1, l2)
+                let longLen = max(l1, l2)
+                lastDims = String(format: "%.1f x %.1f cm", shortLen * 100, longLen * 100)
+                // Una baraja mide ~6,3 x 8,8 cm: filtra pantallas, cables, etc.
+                if shortLen < 0.045 || shortLen > 0.085 || longLen < 0.065 || longLen > 0.115 { continue }
+                let ratio = shortLen / longLen
+                if ratio < 0.6 || ratio > 0.85 { continue }
+
+                // Orientación: Y = normal de la superficie; X = lado corto del rectángulo; Z = lado largo.
+                let up = simd_normalize(simd_float3(hits[0].worldTransform.columns.1.x,
+                                                    hits[0].worldTransform.columns.1.y,
+                                                    hits[0].worldTransform.columns.1.z))
+                let shortEdge = l1 < l2 ? e1 : e2
+                let flat = shortEdge - up * simd_dot(shortEdge, up)
+                if simd_length(flat) < 0.001 { continue }
+                let x = simd_normalize(flat)
+                let z = simd_cross(x, up)
+                let center = (p[0] + p[1] + p[2] + p[3]) / 4
+                found = simd_float4x4(columns: (
+                    SIMD4<Float>(x.x, x.y, x.z, 0),
+                    SIMD4<Float>(up.x, up.y, up.z, 0),
+                    SIMD4<Float>(z.x, z.y, z.z, 0),
+                    SIMD4<Float>(center.x, center.y, center.z, 1)
+                ))
+                break
+            }
+
+            guard let t = found else {
+                stableCount = 0
+                lastCenter = nil
+                model.status = lastDims.isEmpty ? "Buscando el mazo…" : "Descartado (" + lastDims + ")"
                 return
             }
-            model.status = "Mazo detectado, anclando…"
 
-            // Centro del rectángulo: coordenadas Vision (origen abajo-izquierda) → imagen (arriba-izquierda) → vista.
-            let cx = (o.topLeft.x + o.topRight.x + o.bottomLeft.x + o.bottomRight.x) / 4
-            let cy = (o.topLeft.y + o.topRight.y + o.bottomLeft.y + o.bottomRight.y) / 4
-            let normalized = CGPoint(x: cx, y: 1 - cy).applying(transform)
-            let point = CGPoint(x: normalized.x * size.width, y: normalized.y * size.height)
-
-            if let query = view.raycastQuery(from: point, allowing: .estimatedPlane, alignment: .any),
-               let result = view.session.raycast(query).first {
-                place(at: result.worldTransform, how: "auto")
-            } else {
-                model.status = "Mazo visto, pero sin superficie donde anclar. Mueve el móvil o toca la pantalla."
+            // Hace falta verlo estable varias veces seguidas antes de anclar.
+            let c = simd_float3(t.columns.3.x, t.columns.3.y, t.columns.3.z)
+            if let prev = lastCenter, simd_distance(prev, c) < 0.03 { stableCount += 1 } else { stableCount = 1 }
+            lastCenter = c
+            model.status = "Mazo detectado (" + lastDims + ") " + String(stableCount) + "/3"
+            if stableCount >= 3 {
+                place(at: t, how: "auto")
+                stableCount = 0
+                lastCenter = nil
             }
         }
 
