@@ -1,8 +1,11 @@
 package com.inexplicable
 
+import com.inexplicable.effect.Texts
 import com.inexplicable.ui.AppSettings
 import com.inexplicable.ui.KeyValueStore
 import com.inexplicable.ui.SettingsStore
+import com.inexplicable.ui.moved
+import com.inexplicable.ui.removedAt
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -17,10 +20,34 @@ class SettingsStoreTest {
         override fun putLong(key: String, value: Long) { m[key] = value }
     }
 
+    @Test fun defaultsWhenEmpty() {
+        val s = SettingsStore(MemoryStore()).load()
+        assertEquals(AppSettings(), s)
+        assertEquals(24, s.faceDown)
+    }
+
     @Test fun savesAndLoadsSettings() {
         val store = SettingsStore(MemoryStore())
-        assertEquals(0, store.load().counter)
-        store.save(AppSettings(counter = 7))
-        assertEquals(7, store.load().counter)
+        val s = AppSettings(30, 15, "5 de tréboles", listOf("Uno", "Dos, con coma", "Tres"), 4000, 300)
+        store.save(s)
+        assertEquals(s, store.load())
+    }
+
+    @Test fun blankPhasesAreDropped() {
+        val store = SettingsStore(MemoryStore())
+        store.save(AppSettings(customPhases = listOf("A", "  ", "B")))
+        assertEquals(listOf("A", "B"), store.load().customPhases)
+    }
+
+    @Test fun effectivePhasesUseDefaultsOrCustom() {
+        val t = Texts.forLanguage("es", AppSettings(faceDown = 20).params())
+        assertEquals("Hay 20 cartas cara abajo.", AppSettings(faceDown = 20).effectivePhases(t)[0].text)
+        assertEquals(listOf("X"), AppSettings(customPhases = listOf("X")).effectivePhases(t).map { it.text })
+    }
+
+    @Test fun listHelpers() {
+        assertEquals(listOf("b", "a", "c"), listOf("a", "b", "c").moved(0, 1))
+        assertEquals(listOf("a", "b", "c"), listOf("a", "b", "c").moved(0, -1))
+        assertEquals(listOf("a", "c"), listOf("a", "b", "c").removedAt(1))
     }
 }

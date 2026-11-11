@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,24 +64,28 @@ private fun typed(text: String, key: Any?, msPerChar: Long = 32): String {
     return shown
 }
 
-/** Raíz Compose común (Android e iOS): modo «Lector» (Fase 1). La configuración secreta llega en la Fase 2. */
+/** Raíz Compose común (Android e iOS): modo «Lector» + configuración secreta (pulsación larga arriba a la derecha). */
 @Composable
 fun InexplicableRoot(store: SettingsStore) {
-    val texts = remember { Texts.forLanguage(deviceLanguage(), EffectParams()) }
-    val engine = remember { EffectEngine(texts.phases) }
-    var state by remember { mutableStateOf(EffectState()) }
+    val lang = remember { deviceLanguage() }
+    var settings by remember { mutableStateOf(store.load()) }
+    val texts = remember(settings) { Texts.forLanguage(lang, settings.params()) }
+    val phases = remember(settings) { settings.effectivePhases(texts) }
+    val engine = remember(phases) { EffectEngine(phases) }
+    var state by remember(engine) { mutableStateOf(engine.state) }
     var resetCount by remember { mutableStateOf(0) }
+    var showConfig by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     var connectLine by remember { mutableStateOf("") }
 
     fun sync() { state = engine.state }
 
     // Efecto de conexión con la baraja.
-    LaunchedEffect(resetCount) {
+    LaunchedEffect(engine, resetCount) {
         if (engine.state.stage != Stage.Connecting) return@LaunchedEffect
         for (line in texts.connecting) {
             for (i in 1..line.length) { connectLine = line.take(i); delay(28) }
-            delay(650)
+            delay(settings.connectPauseMs)
         }
         engine.connected(); sync()
     }
@@ -88,13 +93,18 @@ fun InexplicableRoot(store: SettingsStore) {
     LaunchedEffect(state, resetCount) {
         if (state.stage == Stage.Analyzing) {
             progress.snapTo(0f)
-            progress.animateTo(1f, tween(2600, easing = LinearEasing))
+            progress.animateTo(1f, tween(settings.analyzeMs.toInt(), easing = LinearEasing))
             engine.revealed(); sync()
         }
     }
 
     SystemBarsEffect()
-    MaterialTheme {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = HudCyan, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
+            onBackground = Color.White, outline = HudDim, secondary = HudCyan,
+        ),
+    ) {
         Box(Modifier.fillMaxSize().background(HudBg)) {
             HudRings(state.stage, progress.value)
 
@@ -108,7 +118,7 @@ fun InexplicableRoot(store: SettingsStore) {
                         Stage.Connecting -> connectLine
                         Stage.Ready -> texts.ready
                         Stage.Analyzing -> texts.analyzing + " " + (progress.value * 100).toInt() + "%"
-                        Stage.Revealed -> typed(texts.phases[state.phase].text, state)
+                        Stage.Revealed -> typed(phases[state.phase].text, state)
                         Stage.Finished -> texts.finished
                     }
                     Text(
@@ -135,12 +145,31 @@ fun InexplicableRoot(store: SettingsStore) {
                 }
             }
 
-            // Zona oculta: pulsación larga arriba a la izquierda = reset. (Arriba a la derecha irá la configuración, Fase 2.)
+            // Zonas ocultas: pulsación larga arriba a la izquierda = reset; arriba a la derecha = configuración.
             Box(
                 Modifier.align(Alignment.TopStart).size(88.dp).pointerInput(Unit) {
                     detectTapGestures(onLongPress = { engine.reset(); resetCount++; connectLine = ""; sync() })
                 },
             )
+            Box(
+                Modifier.align(Alignment.TopEnd).size(88.dp).pointerInput(Unit) {
+                    detectTapGestures(onLongPress = { showConfig = true })
+                },
+            )
+            if (showConfig) {
+                ConfigScreen(
+                    lang = lang,
+                    initial = settings,
+                    onCancel = { showConfig = false },
+                    onSave = { new ->
+                        store.save(new)
+                        settings = new
+                        connectLine = ""
+                        resetCount++
+                        showConfig = false
+                    },
+                )
+            }
         }
     }
 }
