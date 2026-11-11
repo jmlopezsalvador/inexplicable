@@ -20,12 +20,24 @@ struct HideSystemOverlays: ViewModifier {
 }
 
 struct ContentView: View {
+    @State private var showAR = false
+
     var body: some View {
-        ComposeView()
-            .ignoresSafeArea(.all)
-            .background(Color.black)
-            .preferredColorScheme(.dark)
-            .statusBarHidden(true)
-            .modifier(HideSystemOverlays())
+        ZStack(alignment: .top) {
+            ComposeView()
+            // Entrada oculta al prototipo de RA (RA-0): pulsación larga en el centro superior.
+            Color.clear
+                .frame(width: 120, height: 100)
+                .contentShape(Rectangle())
+                .onLongPressGesture(minimumDuration: 1.5) { showAR = true }
+        }
+        .ignoresSafeArea(.all)
+        .background(Color.black)
+        .preferredColorScheme(.dark)
+        .statusBarHidden(true)
+        .modifier(HideSystemOverlays())
+        .fullScreenCover(isPresented: $showAR) {
+            ARScreen(onClose: { showAR = false })
+        }
     }
 }

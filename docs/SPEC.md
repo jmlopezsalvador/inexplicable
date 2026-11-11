@@ -97,7 +97,7 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 2. **Fase 1 — Modo Lector (hecha en lo básico, 2026-11-11: HUD Jarvis, máquina de fases con tests, textos es/en; faltan textos editables):** pantalla inicial, escáner animado, máquina de estados de fases, textos de predicciones, textos multiidioma, tests de la lógica.
 3. **Fase 2 — Configuración secreta (hecha, 2026-11-11: pulsación larga arriba a la derecha, números, carta, tiempos, fases editables/añadir/quitar/reordenar, persistencia local, reset oculto; falta dorsos/voz/estilo RA):** pulsación larga, panel, persistencia, reset oculto, tiempos.
 4. **Fase 3 — Voz (TTS):** `expect`/`actual` para Android/iOS, ajustes de voz.
-5. **Fase 4 — RA-0:** prueba de concepto de detección/seguimiento del dorso (Android primero).
+5. **Fase 4 — RA-0:** prueba de concepto. **Decidido: empezar en iPhone (ARKit)**, volver a Android si se atasca. Prototipo en `iosApp/iosApp/ARPrototype.swift`: Vision detecta un rectángulo con proporción de baraja (agnóstico al dorso), se ancla con raycast y ARKit mantiene el ancla; HUD con estado de seguimiento. Entrada oculta: pulsación larga 1,5 s en el centro superior. Pendiente de compilar y probar en el iPhone (aún sin verificar).
 6. **Fase 5 — RA completa:** animaciones 3D, bocadillo, dorsos configurables, iOS.
 7. **Fase 6 — Pulido:** icono, ajustes, instrucciones, `.ipa` en Actions (siempre preguntando antes de lanzarlo).
 

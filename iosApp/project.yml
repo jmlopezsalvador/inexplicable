@@ -13,6 +13,7 @@ targets:
       path: iosApp/Info.plist
       properties:
         CFBundleDisplayName: Inexplicable
+        NSCameraUsageDescription: La cámara se usa para la realidad aumentada sobre la baraja.
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UIStatusBarHidden: true
