@@ -1,0 +1,17 @@
+local.properties
+build/
+.gradle/
+*.iml
+.idea/
+.kotlin/
+# iOS: el proyecto de Xcode se genera con XcodeGen en CI
+*.xcodeproj/
+xcuserdata/
+DerivedData/
+# Material suelto del usuario (ignorado por Claude y por git)
+ignore/
+# Binarios descargados (APK/IPA): se guardan en local, no se versionan
+data/android_build/*
+data/ios_build/*
+!data/android_build/.gitkeep
+!data/ios_build/.gitkeep

@@ -1,0 +1,44 @@
+name: iOS
+on:
+  workflow_dispatch:          # solo a mano: cada ejecución gasta minutos de macOS
+    inputs:
+      tests:
+        description: "Pasar también los tests en el simulador (gasta más minutos)"
+        type: boolean
+        default: false
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ""
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Tests de la lógica en iOS
+        if: ${{ inputs.tests }}
+        run: ./gradlew :shared:iosSimulatorArm64Test --no-daemon
+      - name: Instalar XcodeGen
+        run: brew install xcodegen
+      - name: Generar el proyecto de Xcode
+        working-directory: iosApp
+        run: xcodegen generate
+      - name: Compilar para iPhone (sin firmar) y empaquetar .ipa
+        working-directory: iosApp
+        run: |
+          xcodebuild build \
+            -project iosApp.xcodeproj -scheme iosApp -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+          mkdir -p build/ipa/Payload
+          cp -R build/device/Build/Products/Release-iphoneos/Inexplicable.app build/ipa/Payload/
+          (cd build/ipa && zip -qry ../Inexplicable.ipa Payload)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Inexplicable-ios-sin-firmar
+          path: iosApp/build/Inexplicable.ipa
+          if-no-files-found: error
