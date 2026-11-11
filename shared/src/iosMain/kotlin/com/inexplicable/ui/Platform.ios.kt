@@ -4,11 +4,16 @@ package com.inexplicable.ui
 
 import androidx.compose.runtime.Composable
 import kotlinx.cinterop.ExperimentalForeignApi
+import platform.Foundation.NSLocale
 import platform.Foundation.NSUserDefaults
+import platform.Foundation.preferredLanguages
 
 /** iOS: sin comportamiento especial (la barra de estado y el indicador de inicio se ocultan en ContentView.swift). */
 @Composable
 actual fun SystemBarsEffect() {}
+
+actual fun deviceLanguage(): String =
+    (NSLocale.preferredLanguages.firstOrNull() as? String)?.substringBefore('-')?.lowercase() ?: "es"
 
 class UserDefaultsStore : KeyValueStore {
     private val d = NSUserDefaults.standardUserDefaults

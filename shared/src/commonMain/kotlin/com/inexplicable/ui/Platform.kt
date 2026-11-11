@@ -8,3 +8,6 @@ import androidx.compose.runtime.Composable
  */
 @Composable
 expect fun SystemBarsEffect()
+
+/** Código de idioma del dispositivo en minúsculas (`"es"`, `"en"`...). */
+expect fun deviceLanguage(): String

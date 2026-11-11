@@ -94,7 +94,7 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 
 ## 9. Hoja de ruta (propuesta)
 1. **Fase 0 — Inicialización** (hecha): renombrado a Inexplicable, SPEC, compilación.
-2. **Fase 1 — Modo Lector:** pantalla inicial, escáner animado, máquina de estados de fases, textos de predicciones, textos multiidioma, tests de la lógica.
+2. **Fase 1 — Modo Lector (hecha en lo básico, 2026-11-11: HUD Jarvis, máquina de fases con tests, textos es/en; faltan textos editables):** pantalla inicial, escáner animado, máquina de estados de fases, textos de predicciones, textos multiidioma, tests de la lógica.
 3. **Fase 2 — Configuración secreta:** pulsación larga, panel, persistencia, reset oculto, tiempos.
 4. **Fase 3 — Voz (TTS):** `expect`/`actual` para Android/iOS, ajustes de voz.
 5. **Fase 4 — RA-0:** prueba de concepto de detección/seguimiento del dorso (Android primero).

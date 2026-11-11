@@ -7,6 +7,8 @@ import androidx.compose.runtime.Composable
 @Composable
 actual fun SystemBarsEffect() {}
 
+actual fun deviceLanguage(): String = java.util.Locale.getDefault().language.lowercase()
+
 class SharedPrefsStore(context: Context) : KeyValueStore {
     private val p = context.getSharedPreferences("inexplicable", Context.MODE_PRIVATE)
     override fun getString(key: String): String? = p.getString(key, null)
