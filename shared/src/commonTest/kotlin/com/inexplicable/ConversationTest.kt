@@ -30,6 +30,18 @@ class ConversationTest {
         assertFalse(PhraseMatcher.matches("", ph))
     }
 
+    @Test fun phraseInsideALongerSentenceStillMatches() {
+        val ph = es.line(ScriptAction.Analyze).phrases
+        assertTrue(PhraseMatcher.matches("bueno pues vamos allá, analiza la baraja de una vez", ph))
+        assertTrue(PhraseMatcher.matches("venga, analiza la baraja por favor, que tenemos prisa", ph))
+        // Palabras sueltas o la frase rota no cuentan.
+        assertFalse(PhraseMatcher.matches("analiza esto y luego mira la baraja", ph))
+        // Una frase de una sola palabra no se dispara con cualquier frase que la contenga.
+        val one = listOf("sigue")
+        assertFalse(PhraseMatcher.matches("si sigue lloviendo nos vamos a casa", one))
+        assertTrue(PhraseMatcher.matches("sigue", one))
+    }
+
     @Test fun wakeWordIsRequiredWhenAsked() {
         val ph = es.line(ScriptAction.Analyze).phrases
         assertFalse(PhraseMatcher.matches("analiza la baraja", ph, wake = "jarvis"))

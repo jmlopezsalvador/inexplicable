@@ -102,6 +102,9 @@ fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) 
             bgImage = bgImg,
             onBgPhoto = { store.saveBgImage(bytesToBase64(it)); bgBytes = it },
             onClearBg = { store.saveBgImage(null); bgBytes = null },
+            onRestoreDefaults = {
+                store.save(AppSettings()); store.saveBackPhoto(null); store.saveBgImage(null); onClose()
+            },
             onSave = { speaker.stop(); store.save(it); onClose() },
             onCancel = { speaker.stop(); onClose() },
         )
@@ -174,7 +177,6 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         if (settings.bgImage) store.loadBgImage()?.let(::base64ToBytes)?.let(::decodeImage) else null
     }
     val bgStored = remember(bgVersion) { store.loadBgImage()?.let(::base64ToBytes)?.let(::decodeImage) } // la guardada (para la configuración)
-    var confirmReset by remember { mutableStateOf(false) }         // diálogo de «restablecer»
     var confirmExit by remember { mutableStateOf(false) }          // el botón de salir pide una segunda pulsación
     var notice by remember { mutableStateOf("") }                  // aviso en el menú
     val engine = remember(phases, scriptMode, photoMode) { EffectEngine(phases, startIdle = scriptMode || photoMode) }
@@ -323,7 +325,6 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         val d = AppSettings()
         store.save(d); store.saveBackPhoto(null); store.saveBgImage(null); store.setListenGuard(false)
         settings = d; backVersion++; bgVersion++
-        confirmReset = false
         notice = if (lang == "en") "Settings restored to defaults." else "Configuración restablecida."
     }
 
@@ -424,10 +425,9 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                             started = true
                         }
                     }
-                    // Ajustes y restablecer: solo se llega a ellos desde el menú principal (en el juego solo se puede salir).
-                    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    // Los ajustes (con «Restablecer» al final) solo se abren desde el menú principal; en el juego solo se puede salir.
+                    Box(Modifier.padding(top = 18.dp)) {
                         MiniButton(if (lang == "en") "SETTINGS" else "AJUSTES") { settings = store.load(); notice = ""; showConfig = true }
-                        MiniButton(if (lang == "en") "RESET" else "RESTABLECER") { confirmReset = true }
                     }
                 }
             } else Column(
@@ -532,20 +532,6 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     }
                 }
             }
-            if (confirmReset) {
-                AlertDialog(
-                    onDismissRequest = { confirmReset = false },
-                    title = { Text(if (lang == "en") "Restore defaults?" else "¿Restablecer?") },
-                    text = {
-                        Text(
-                            if (lang == "en") "All settings, the deck-back photo and the background image will return to their default values."
-                            else "Toda la configuración, la foto del dorso y la imagen de fondo volverán a sus valores por defecto.",
-                        )
-                    },
-                    confirmButton = { TextButton({ resetAll() }) { Text(if (lang == "en") "RESTORE" else "RESTABLECER") } },
-                    dismissButton = { TextButton({ confirmReset = false }) { Text(if (lang == "en") "Cancel" else "Cancelar") } },
-                )
-            }
             if (showConfig && !started) {
                 ConfigScreen(
                     lang = lang,
@@ -558,6 +544,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     bgImage = bgStored,
                     onBgPhoto = { store.saveBgImage(bytesToBase64(it)); bgVersion++ },
                     onClearBg = { store.saveBgImage(null); bgVersion++ },
+                    onRestoreDefaults = { resetAll(); showConfig = false },
                     onCancel = { speaker.stop(); showConfig = false },
                     onSave = { new ->
                         speaker.stop()

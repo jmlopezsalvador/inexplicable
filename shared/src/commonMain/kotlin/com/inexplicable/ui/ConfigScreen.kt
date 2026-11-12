@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -57,6 +58,7 @@ fun ConfigScreen(
     bgImage: ImageBitmap?,
     onBgPhoto: (ByteArray) -> Unit,
     onClearBg: () -> Unit,
+    onRestoreDefaults: () -> Unit,
     onSave: (AppSettings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -93,6 +95,7 @@ fun ConfigScreen(
     var bgDim by remember { mutableStateOf(initial.bgDimPct / 100f) }
     var showBgCamera by remember { mutableStateOf(false) }
     var showGallery by remember { mutableStateOf(false) }
+    var confirmRestore by remember { mutableStateOf(false) }
     // Guion de la conversación: se parte de lo que haya (personalizado o por defecto) para poder editarlo.
     val scriptBase = remember(lang) { ScriptBooks.forLanguage(lang) }
     val scriptNow = remember {
@@ -151,6 +154,10 @@ fun ConfigScreen(
                 Label(t("Control del avance (se aplica al empezar un juego nuevo)", "How the effect advances (applies when a new game starts)"))
                 ModeOption(control == CONTROL_BUTTONS, t("Botones de la pantalla", "On-screen buttons")) { control = CONTROL_BUTTONS }
                 ModeOption(control == CONTROL_SCRIPT, t("Conversación guionizada (Jarvis habla)", "Scripted conversation (Jarvis talks)")) { control = CONTROL_SCRIPT }
+                if (control == CONTROL_SCRIPT) {
+                    // Sin esto la conversación solo avanza con los botones de la pantalla.
+                    SwitchRow(voiceListen, t("Escuchar al mago con el micrófono (si no, solo botones)", "Listen to the magician with the microphone (otherwise buttons only)")) { voiceListen = it }
+                }
                 Label(t("Complejidad visual (HUD y efectos)", "Visual complexity (HUD and effects)"))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     for (l in 1..3) {
@@ -289,7 +296,7 @@ fun ConfigScreen(
                 Label(t("Solo con «Conversación guionizada». Necesita permiso de micrófono; en Android el reconocedor puede hacer un pitido al escuchar.",
                     "Only with “Scripted conversation”. Needs microphone permission; on Android the recognizer may beep when listening."))
                 SwitchRow(voiceListen, t("Escuchar al mago con el micrófono", "Listen to the magician with the microphone")) { voiceListen = it }
-                SwitchRow(wakeRequired, t("Exigir «Jarvis» en las órdenes", "Require “Jarvis” in commands")) { wakeRequired = it }
+                SwitchRow(wakeRequired, t("Exigir la palabra de activación en las órdenes (apagado: basta con decir la frase)", "Require the wake word in commands (off: just say the phrase)")) { wakeRequired = it }
                 Label(t("Coincidencia mínima", "Minimum match") + ": " + (matchPct * 100).toInt() + "%")
                 Slider(matchPct, { matchPct = it }, valueRange = 0.5f..1f)
                 SwitchRow(listenDebug, t("Mostrar lo último que se oyó (ajustes)", "Show the last thing heard (tuning)")) { listenDebug = it }
@@ -332,6 +339,11 @@ fun ConfigScreen(
                     singleLine = true, keyboardOptions = num)
                 SwitchRow(detDebug, t("Dibujar lo que evalúa", "Draw what it evaluates")) { detDebug = it }
                 SwitchRow(detManual, t("Anclar a mano tocando la pantalla", "Anchor by tapping the screen")) { detManual = it }
+            }
+
+            // Lo último de la lista: volver a los valores por defecto (con confirmación).
+            TextButton({ confirmRestore = true }, Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text(t("Restablecer toda la configuración…", "Restore all settings…"), color = Color(0xFFFF6B6B))
             }
         }
 
@@ -381,6 +393,18 @@ fun ConfigScreen(
                 ))
             }, Modifier.weight(1f)) { Text(t("Guardar", "Save")) }
         }
+    }
+    if (confirmRestore) {
+        AlertDialog(
+            onDismissRequest = { confirmRestore = false },
+            title = { Text(t("¿Restablecer?", "Restore defaults?")) },
+            text = {
+                Text(t("Toda la configuración, la foto del dorso y la imagen de fondo volverán a sus valores por defecto.",
+                    "All settings, the deck-back photo and the background image will return to their default values."))
+            },
+            confirmButton = { TextButton({ confirmRestore = false; onRestoreDefaults() }) { Text(t("RESTABLECER", "RESTORE")) } },
+            dismissButton = { TextButton({ confirmRestore = false }) { Text(t("Cancelar", "Cancel")) } },
+        )
     }
     if (showGallery) {
         GalleryPicker { bytes ->

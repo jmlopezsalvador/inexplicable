@@ -34,8 +34,8 @@ El usuario habla español: responde y comenta el código en español.
 Paquete `com.inexplicable`. Herramienta de apoyo para un efecto de magia llamado «Inexplicable»: la app finge ser un lector/predictor
 de la baraja real y revela 4 predicciones por fases (cartas boca abajo y rojas, negras pares, fallo aparente y excepción), guiada en
 secreto por el mago. Modos: «Lector» (pantalla animada, primero) y «RA» (cámara que detecta/sigue el dorso de la baraja con objetos 3D).
-Configuración (predicciones, carta extra, tiempos, colores y fondo, voz TTS, guion, dorsos) y «Restablecer» (vuelve a los valores por defecto)
-son **botones visibles solo en el menú principal**; dentro del juego solo hay un botón ✕ que sale al menú (pide una segunda pulsación).
+El botón **Ajustes** (predicciones, carta extra, tiempos, colores y fondo, voz TTS, guion, dorsos; con «Restablecer» al final de la lista, que vuelve a los
+valores por defecto) es **visible solo en el menú principal**; dentro del juego solo hay un botón ✕ que sale al menú (pide una segunda pulsación).
 Ya no hay zonas ocultas de pulsación larga. Multiidioma (el del móvil), todo local.
 **Flujo:** la app arranca en un menú (anillos + EMPEZAR). EMPEZAR inicia un juego nuevo en el modo elegido en la configuración
 (`mode`: HUD plano `reader`, Baraja 3D `deck3d` o RA `ar`; solo se aplica al empezar). Cada fase: Analizar → animación → aparece un
@@ -49,7 +49,7 @@ se dibujan sobre la foto (`PhotoScene`): `Photo.kt` calcula la homografía y la 
 (63×88 mm), suponiendo una focal normal de móvil. **Foto del dorso:** en la configuración, con marco; se guarda en base64 en el almacén de ajustes
 (`SettingsStore.loadBackPhoto`) y se pinta con perspectiva en la cara superior de la baraja 3D. La cámara es CameraX en Android y `Camera.swift` en iOS
 (igual que sonido/voz: puente de texto `IosCameraHooks`). **Escucha por voz** (`Listener`, ajuste `voiceListen`): `SpeechRecognizer` en Android, `Listen.swift`
-(`SFSpeechRecognizer`) en iOS; lo oído solo cuenta si encaja con la orden esperada (`hear`) y se ignora mientras la app habla. Permisos: CAMERA y RECORD_AUDIO
+(`SFSpeechRecognizer`) en iOS; lo oído solo cuenta si encaja con la orden esperada (`hear`; basta que la frase aparezca entera dentro de lo dicho, sin exigir la palabra «Jarvis» salvo que se active `wakeRequired`) y se ignora mientras la app habla. Hay que activar `voiceListen` (interruptor junto al modo guionizado). Permisos: CAMERA y RECORD_AUDIO
 (manifiesto de Android; `Info.plist` vía `project.yml` en iOS).
 **Reacción a la voz:** `Speaker.onEvent` avisa de `Start`/`Word`/`End` (Android: `UtteranceProgressListener`; iOS: delegado de `AVSpeechSynthesizer` →
 `IosSpeechHooks.deliver`). `SpeechFeedback` (en `Speech.kt`) los convierte en `kick` (impulso por palabra) y `level` (mientras habla), con pulsos sintéticos si no

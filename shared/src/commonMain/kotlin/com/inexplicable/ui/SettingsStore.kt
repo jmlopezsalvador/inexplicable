@@ -78,7 +78,7 @@ data class AppSettings(
     val scriptFinished: String = "",                // lo que dice al acabar todas las fases
     val control: String = CONTROL_BUTTONS, // cómo avanza el efecto (se aplica al empezar un juego nuevo)
     val voiceListen: Boolean = false, // en el control por conversación: escuchar al mago con el micrófono
-    val wakeRequired: Boolean = true, // exigir la palabra «Jarvis» en las órdenes (no en el saludo)
+    val wakeRequired: Boolean = false, // exigir la palabra «Jarvis» en las órdenes (no en el saludo); apagado: basta con decir la frase
     val matchPct: Int = 80,           // % de coincidencia mínimo entre lo oído y la frase esperada
     val listenDebug: Boolean = true,  // muestra en pantalla lo último que se ha oído (para ajustar; se quitará)
 ) {
@@ -140,7 +140,7 @@ class SettingsStore(private val prefs: KeyValueStore) {
             scriptFinished = prefs.getString("scriptFinished") ?: "",
             control = prefs.getString("control")?.takeIf { it == CONTROL_BUTTONS || it == CONTROL_SCRIPT } ?: d.control,
             voiceListen = prefs.getBoolean("voiceListen", d.voiceListen),
-            wakeRequired = prefs.getBoolean("wakeRequired", d.wakeRequired),
+            wakeRequired = prefs.getBoolean("wakeNeeded", d.wakeRequired),
             matchPct = prefs.getLong("matchPct", d.matchPct.toLong()).toInt().coerceIn(50, 100),
             listenDebug = prefs.getBoolean("listenDebug", d.listenDebug),
         )
@@ -189,7 +189,7 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putString("scriptFinished", s.scriptFinished)
         prefs.putString("control", s.control)
         prefs.putBoolean("voiceListen", s.voiceListen)
-        prefs.putBoolean("wakeRequired", s.wakeRequired)
+        prefs.putBoolean("wakeNeeded", s.wakeRequired)
         prefs.putLong("matchPct", s.matchPct.toLong())
         prefs.putBoolean("listenDebug", s.listenDebug)
     }

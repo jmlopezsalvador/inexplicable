@@ -125,11 +125,25 @@ object PhraseMatcher {
     /** Dos palabras valen igual si son iguales o (si son largas) difieren en una letra: los reconocedores se equivocan poco. */
     private fun sameWord(a: String, b: String) = a == b || (min(a.length, b.length) >= 5 && distance(a, b) <= 1)
 
-    /** 0..1: media armónica entre cuántas palabras de la frase esperada se han oído y cuántas de las oídas eran de la frase. */
+    /** ¿Aparece `p` entera y seguida (palabra a palabra, con tolerancia) dentro de `h`? */
+    private fun containsSequence(h: List<String>, p: List<String>): Boolean {
+        if (p.isEmpty() || p.size > h.size) return false
+        for (start in 0..(h.size - p.size)) {
+            if (p.indices.all { sameWord(h[start + it], p[it]) }) return true
+        }
+        return false
+    }
+
+    /**
+     * 0..1. Si la frase esperada (de dos o más palabras) aparece entera y seguida dentro de lo oído, vale 1: el mago puede decir cosas antes o
+     * después («bueno, pues vamos allá: analiza la baraja, por favor»). Si no, media armónica entre cuántas palabras de la frase esperada se han
+     * oído y cuántas de las oídas eran de la frase (así una sola palabra suelta del público no dispara nada).
+     */
     fun score(heard: String, phrase: String): Double {
         val h = normalize(heard).split(' ').filter { it.isNotEmpty() }
         val p = normalize(phrase).split(' ').filter { it.isNotEmpty() }
         if (h.isEmpty() || p.isEmpty()) return 0.0
+        if (p.size >= 2 && containsSequence(h, p)) return 1.0
         val matched = p.count { w -> h.any { sameWord(it, w) } }
         val usedHeard = h.count { w -> p.any { sameWord(it, w) } }
         val recall = matched.toDouble() / p.size
