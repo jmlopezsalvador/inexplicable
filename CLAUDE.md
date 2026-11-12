@@ -35,7 +35,11 @@ Paquete `com.inexplicable`. Herramienta de apoyo para un efecto de magia llamado
 de la baraja real y revela 4 predicciones por fases (cartas boca abajo y rojas, negras pares, fallo aparente y excepción), guiada en
 secreto por el mago. Modos: «Lector» (pantalla animada, primero) y «RA» (cámara que detecta/sigue el dorso de la baraja con objetos 3D).
 Configuración secreta por pulsación larga en una esquina (predicciones, carta extra, tiempos, voz TTS, dorsos); reset oculto arriba a la
-izquierda. Multiidioma (el del móvil), todo local. **Detalle y preguntas abiertas en `docs/SPEC.md`.**
+izquierda (vuelve al menú principal). Multiidioma (el del móvil), todo local.
+**Flujo:** la app arranca en un menú (anillos + EMPEZAR). EMPEZAR inicia un juego nuevo en el modo elegido en la configuración
+(`mode`: Lector o RA; solo se aplica al empezar). En iOS la RA es nativa (`iosApp/ARPrototype.swift`): Kotlin llama a Swift con
+`onStartAR`, y la configuración se abre sobre la RA con `ConfigViewController`. Swift lee los ajustes de detección (`det*`, `detManualTap`)
+de `UserDefaults` con las mismas claves que escribe `SettingsStore`. En Android el modo RA aún no existe (previsto: escena 3D de pruebas). **Detalle y preguntas abiertas en `docs/SPEC.md`.**
 
 ## Reglas de código para que compile en iOS
 - En `commonMain`: nada de `java.*` ni `android.*`. Usar `kotlinx-datetime` (0.6.1), `kotlin.math.*` y, si hace falta aritmética

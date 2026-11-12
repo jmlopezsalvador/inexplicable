@@ -4,6 +4,9 @@ import com.inexplicable.effect.EffectParams
 import com.inexplicable.effect.Phase
 import com.inexplicable.effect.UiTexts
 
+const val MODE_READER = "reader"
+const val MODE_AR = "ar"
+
 /** Almacenamiento clave-valor local. Android: SharedPreferences. iOS: NSUserDefaults (ver las `actual`). */
 interface KeyValueStore {
     fun getString(key: String): String?
@@ -25,6 +28,17 @@ data class AppSettings(
     val customPhases: List<String> = emptyList(),
     val analyzeMs: Long = 2600,
     val connectPauseMs: Long = 650,
+    // Detección del mazo en RA (la lee el código Swift de iOS desde UserDefaults con estas mismas claves).
+    val detTries: Int = 3,            // detecciones estables seguidas necesarias para anclar
+    val detTolerancePct: Int = 30,    // margen de error (%) sobre las medidas 6,3 x 8,8 cm
+    val detIntervalMs: Int = 300,     // cada cuánto se intenta detectar
+    val detMinConfidencePct: Int = 60,// confianza mínima de Vision
+    val detMinSizePct: Int = 5,       // tamaño mínimo del rectángulo en pantalla (%); más bajo = detecta más lejos
+    val detMaxObservations: Int = 3,  // candidatos que evalúa por intento
+    val detMoveCm: Int = 3,           // cuánto puede moverse el centro entre intentos para contar como estable
+    val detShowDebug: Boolean = true, // dibuja los candidatos que se están evaluando
+    val detManualTap: Boolean = true, // permite anclar a mano tocando la pantalla
+    val mode: String = MODE_READER,   // modo de juego: MODE_READER o MODE_AR (se aplica al empezar un juego nuevo)
 ) {
     fun params() = EffectParams(faceDown, red, extraCard)
 
@@ -43,6 +57,16 @@ class SettingsStore(private val prefs: KeyValueStore) {
             customPhases = prefs.getString("phases")?.split(SEP)?.filter { it.isNotBlank() } ?: emptyList(),
             analyzeMs = prefs.getLong("analyzeMs", d.analyzeMs),
             connectPauseMs = prefs.getLong("connectPauseMs", d.connectPauseMs),
+            detTries = prefs.getLong("detTries", d.detTries.toLong()).toInt(),
+            detTolerancePct = prefs.getLong("detTolerancePct", d.detTolerancePct.toLong()).toInt(),
+            detIntervalMs = prefs.getLong("detIntervalMs", d.detIntervalMs.toLong()).toInt(),
+            detMinConfidencePct = prefs.getLong("detMinConfidencePct", d.detMinConfidencePct.toLong()).toInt(),
+            detMinSizePct = prefs.getLong("detMinSizePct", d.detMinSizePct.toLong()).toInt(),
+            detMaxObservations = prefs.getLong("detMaxObservations", d.detMaxObservations.toLong()).toInt(),
+            detMoveCm = prefs.getLong("detMoveCm", d.detMoveCm.toLong()).toInt(),
+            detShowDebug = prefs.getBoolean("detShowDebug", d.detShowDebug),
+            detManualTap = prefs.getBoolean("detManualTap", d.detManualTap),
+            mode = prefs.getString("mode")?.takeIf { it == MODE_READER || it == MODE_AR } ?: d.mode,
         )
     }
 
@@ -53,6 +77,16 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putString("phases", s.customPhases.filter { it.isNotBlank() }.joinToString(SEP.toString()))
         prefs.putLong("analyzeMs", s.analyzeMs)
         prefs.putLong("connectPauseMs", s.connectPauseMs)
+        prefs.putLong("detTries", s.detTries.toLong())
+        prefs.putLong("detTolerancePct", s.detTolerancePct.toLong())
+        prefs.putLong("detIntervalMs", s.detIntervalMs.toLong())
+        prefs.putLong("detMinConfidencePct", s.detMinConfidencePct.toLong())
+        prefs.putLong("detMinSizePct", s.detMinSizePct.toLong())
+        prefs.putLong("detMaxObservations", s.detMaxObservations.toLong())
+        prefs.putLong("detMoveCm", s.detMoveCm.toLong())
+        prefs.putBoolean("detShowDebug", s.detShowDebug)
+        prefs.putBoolean("detManualTap", s.detManualTap)
+        prefs.putString("mode", s.mode)
     }
 
     private companion object { const val SEP = '\u001F' }

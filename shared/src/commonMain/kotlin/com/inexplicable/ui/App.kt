@@ -64,11 +64,38 @@ private fun typed(text: String, key: Any?, msPerChar: Long = 32): String {
     return shown
 }
 
-/** Raíz Compose común (Android e iOS): modo «Lector» + configuración secreta (pulsación larga arriba a la derecha). */
 @Composable
-fun InexplicableRoot(store: SettingsStore) {
+private fun InexplicableTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = HudCyan, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
+            onBackground = Color.White, outline = HudDim, secondary = HudCyan,
+        ),
+        content = content,
+    )
+}
+
+/** Solo la pantalla de configuración (iOS la muestra encima de la RA nativa). Guarda y llama a `onClose`. */
+@Composable
+fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) {
     val lang = remember { deviceLanguage() }
+    val initial = remember { store.load() }
+    InexplicableTheme {
+        ConfigScreen(lang, initial, arAvailable, onSave = { store.save(it); onClose() }, onCancel = onClose)
+    }
+}
+
+/**
+ * Raíz Compose común (Android e iOS). Arranca en el menú principal (anillos + EMPEZAR); «Empezar» inicia un juego nuevo
+ * en el modo elegido en la configuración (Lector aquí mismo; RA a través de `onStartAR`, que abre la RA nativa).
+ * Pulsación larga arriba a la izquierda = reset (vuelve al menú); arriba a la derecha = configuración.
+ */
+@Composable
+fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
+    val lang = remember { deviceLanguage() }
+    val arAvailable = onStartAR != null
     var settings by remember { mutableStateOf(store.load()) }
+    var started by remember { mutableStateOf(false) }
     val texts = remember(settings) { Texts.forLanguage(lang, settings.params()) }
     val phases = remember(settings) { settings.effectivePhases(texts) }
     val engine = remember(phases) { EffectEngine(phases) }
@@ -81,8 +108,8 @@ fun InexplicableRoot(store: SettingsStore) {
     fun sync() { state = engine.state }
 
     // Efecto de conexión con la baraja.
-    LaunchedEffect(engine, resetCount) {
-        if (engine.state.stage != Stage.Connecting) return@LaunchedEffect
+    LaunchedEffect(engine, resetCount, started) {
+        if (!started || engine.state.stage != Stage.Connecting) return@LaunchedEffect
         for (line in texts.connecting) {
             for (i in 1..line.length) { connectLine = line.take(i); delay(28) }
             delay(settings.connectPauseMs)
@@ -99,16 +126,30 @@ fun InexplicableRoot(store: SettingsStore) {
     }
 
     SystemBarsEffect()
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = HudCyan, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
-            onBackground = Color.White, outline = HudDim, secondary = HudCyan,
-        ),
-    ) {
+    InexplicableTheme {
         Box(Modifier.fillMaxSize().background(HudBg)) {
-            HudRings(state.stage, progress.value)
+            HudRings(if (started) state.stage else Stage.Ready, progress.value)
 
-            Column(
+            if (!started) {
+                Column(
+                    Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 56.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(texts.title, color = HudCyan, fontSize = 28.sp, letterSpacing = 10.sp, fontWeight = FontWeight.Light)
+                    Box(Modifier.weight(1f))
+                    HudButton(if (lang == "en") "START" else "EMPEZAR", true) {
+                        // Se relee la configuración (pudo cambiarse desde la RA) y se fija el modo de este juego.
+                        val fresh = store.load()
+                        settings = fresh
+                        if (fresh.mode == MODE_AR && onStartAR != null) {
+                            onStartAR()
+                        } else {
+                            engine.reset(); resetCount++; connectLine = ""; sync()
+                            started = true
+                        }
+                    }
+                }
+            } else Column(
                 Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 56.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
@@ -148,18 +189,22 @@ fun InexplicableRoot(store: SettingsStore) {
             // Zonas ocultas: pulsación larga arriba a la izquierda = reset; arriba a la derecha = configuración.
             Box(
                 Modifier.align(Alignment.TopStart).size(88.dp).pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { engine.reset(); resetCount++; connectLine = ""; sync() })
+                    detectTapGestures(onLongPress = {
+                        engine.reset(); resetCount++; connectLine = ""; sync()
+                        started = false // vuelve al menú principal
+                    })
                 },
             )
             Box(
                 Modifier.align(Alignment.TopEnd).size(88.dp).pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { showConfig = true })
+                    detectTapGestures(onLongPress = { settings = store.load(); showConfig = true })
                 },
             )
             if (showConfig) {
                 ConfigScreen(
                     lang = lang,
                     initial = settings,
+                    arAvailable = arAvailable,
                     onCancel = { showConfig = false },
                     onSave = { new ->
                         store.save(new)
