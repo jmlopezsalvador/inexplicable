@@ -7,10 +7,10 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,8 +19,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,28 +31,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.gestures.detectTapGestures
 import com.inexplicable.effect.EffectEngine
-import com.inexplicable.effect.EffectParams
-import com.inexplicable.effect.EffectState
 import com.inexplicable.effect.Stage
 import com.inexplicable.effect.Texts
 import kotlinx.coroutines.delay
 
 private val HudBg = Color(0xFF00050E)
-private val HudCyan = Color(0xFF3DDCFF)
-private val HudDim = Color(0xFF123B4A)
 
 /** Escribe `text` carácter a carácter (efecto máquina de escribir). */
 @Composable
@@ -65,14 +56,16 @@ private fun typed(text: String, key: Any?, msPerChar: Long = 32): String {
 }
 
 @Composable
-private fun InexplicableTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = darkColorScheme(
-            primary = HudCyan, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
-            onBackground = Color.White, outline = HudDim, secondary = HudCyan,
-        ),
-        content = content,
-    )
+private fun InexplicableTheme(palette: Palette, content: @Composable () -> Unit) {
+    WithPalette(palette) {
+        MaterialTheme(
+            colorScheme = darkColorScheme(
+                primary = palette.primary, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
+                onBackground = Color.White, outline = palette.primary.copy(alpha = 0.3f), secondary = palette.primary,
+            ),
+            content = content,
+        )
+    }
 }
 
 /** Solo la pantalla de configuración (iOS la muestra encima de la RA nativa). Guarda y llama a `onClose`. */
@@ -80,22 +73,26 @@ private fun InexplicableTheme(content: @Composable () -> Unit) {
 fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) {
     val lang = remember { deviceLanguage() }
     val initial = remember { store.load() }
-    InexplicableTheme {
+    InexplicableTheme(initial.palette()) {
         ConfigScreen(lang, initial, arAvailable, onSave = { store.save(it); onClose() }, onCancel = onClose)
     }
 }
 
 /**
  * Raíz Compose común (Android e iOS). Arranca en el menú principal (anillos + EMPEZAR); «Empezar» inicia un juego nuevo
- * en el modo elegido en la configuración (Lector aquí mismo; RA a través de `onStartAR`, que abre la RA nativa).
+ * en el modo elegido en la configuración: HUD plano, baraja 3D (mesa virtual) o RA (nativa en iOS, vía `onStartAR`).
  * Pulsación larga arriba a la izquierda = reset (vuelve al menú); arriba a la derecha = configuración.
+ *
+ * Cada fase: Analizar → animación → aparece un resultado que se pulsa → se abre → se lee la predicción → Continuar.
  */
 @Composable
 fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     val lang = remember { deviceLanguage() }
-    val arAvailable = onStartAR != null
     var settings by remember { mutableStateOf(store.load()) }
     var started by remember { mutableStateOf(false) }
+    // Modo del juego en curso (fijado al pulsar EMPEZAR).
+    var playMode by remember { mutableStateOf(MODE_READER) }
+    val sim3d = started && playMode == MODE_DECK3D
     val texts = remember(settings) { Texts.forLanguage(lang, settings.params()) }
     val phases = remember(settings) { settings.effectivePhases(texts) }
     val engine = remember(phases) { EffectEngine(phases) }
@@ -103,9 +100,12 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     var resetCount by remember { mutableStateOf(0) }
     var showConfig by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
+    val open = remember { Animatable(0f) }
     var connectLine by remember { mutableStateOf("") }
+    val time = rememberTime()
 
     fun sync() { state = engine.state }
+    fun openResult() { engine.revealed(); sync() }
 
     // Efecto de conexión con la baraja.
     LaunchedEffect(engine, resetCount, started) {
@@ -116,26 +116,56 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         }
         engine.connected(); sync()
     }
-    // Animación de análisis.
+    // Animación de análisis → aparece el resultado pulsable.
     LaunchedEffect(state, resetCount) {
         if (state.stage == Stage.Analyzing) {
             progress.snapTo(0f)
             progress.animateTo(1f, tween(settings.analyzeMs.toInt(), easing = LinearEasing))
-            engine.revealed(); sync()
+            engine.resultReady(); sync()
+        }
+    }
+    // Animación de apertura del resultado.
+    LaunchedEffect(state, resetCount) {
+        if (state.stage == Stage.Revealed) {
+            open.snapTo(0f)
+            open.animateTo(1f, tween(settings.openMs.toInt(), easing = LinearEasing))
+        } else {
+            open.snapTo(0f)
         }
     }
 
     SystemBarsEffect()
-    InexplicableTheme {
+    InexplicableTheme(settings.palette()) {
+        val pal = LocalPalette.current
         Box(Modifier.fillMaxSize().background(HudBg)) {
-            HudRings(if (started) state.stage else Stage.Ready, progress.value)
+            val shownPhase = phases.getOrNull(state.phase)?.text ?: ""
+            if (sim3d) {
+                DeckScene(
+                    stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
+                    bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
+                    tapLabel = texts.tapToReveal, time = time, onOpen = ::openResult,
+                )
+            } else {
+                HudCanvas(if (started) state.stage else Stage.Ready, progress.value, open.value, settings.hudLevel, time)
+                // El sello de resultado del HUD se pulsa en la zona central.
+                if (started && state.stage == Stage.Result) {
+                    Box(
+                        Modifier.fillMaxSize().pointerInput(state.stage) {
+                            detectTapGestures { off ->
+                                val c = hudCenter(size.width.toFloat(), size.height.toFloat())
+                                if ((off - c).getDistance() < hudRadius(size.width.toFloat(), size.height.toFloat())) openResult()
+                            }
+                        },
+                    )
+                }
+            }
 
             if (!started) {
                 Column(
                     Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 56.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text(texts.title, color = HudCyan, fontSize = 28.sp, letterSpacing = 10.sp, fontWeight = FontWeight.Light)
+                    Text(texts.title, color = pal.primary, fontSize = 28.sp, letterSpacing = 10.sp, fontWeight = FontWeight.Light)
                     Box(Modifier.weight(1f))
                     HudButton(if (lang == "en") "START" else "EMPEZAR", true) {
                         // Se relee la configuración (pudo cambiarse desde la RA) y se fija el modo de este juego.
@@ -145,6 +175,8 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                             onStartAR()
                         } else {
                             engine.reset(); resetCount++; connectLine = ""; sync()
+                            // Sin RA nativa (Android) el modo RA cae al HUD plano.
+                            playMode = if (fresh.mode == MODE_AR) MODE_READER else fresh.mode
                             started = true
                         }
                     }
@@ -153,27 +185,31 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 56.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(texts.title, color = HudCyan, fontSize = 18.sp, letterSpacing = 8.sp, fontWeight = FontWeight.Light)
+                Text(texts.title, color = pal.primary, fontSize = 18.sp, letterSpacing = 8.sp, fontWeight = FontWeight.Light)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                     val message = when (state.stage) {
                         Stage.Connecting -> connectLine
                         Stage.Ready -> texts.ready
                         Stage.Analyzing -> texts.analyzing + " " + (progress.value * 100).toInt() + "%"
-                        Stage.Revealed -> typed(phases[state.phase].text, state)
+                        Stage.Result -> if (sim3d) "" else texts.tapToReveal
+                        Stage.Revealed -> if (sim3d || open.value < 0.35f) "" else typed(shownPhase, state)
                         Stage.Finished -> texts.finished
                     }
+                    val pulse by rememberInfiniteTransition().animateFloat(
+                        0.4f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse),
+                    )
                     Text(
                         message,
-                        color = Color.White,
+                        color = if (state.stage == Stage.Result) pal.accent else Color.White,
                         fontSize = if (state.stage == Stage.Revealed) 26.sp else 16.sp,
                         fontFamily = FontFamily.Monospace,
                         lineHeight = if (state.stage == Stage.Revealed) 36.sp else 22.sp,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 32.dp),
+                        modifier = Modifier.padding(bottom = 32.dp).alpha(if (state.stage == Stage.Result) pulse else 1f),
                     )
                 }
                 val label = if (state.stage == Stage.Revealed) texts.nextButton else texts.analyzeButton
-                val active = state.stage == Stage.Ready || state.stage == Stage.Revealed
+                val active = state.stage == Stage.Ready || (state.stage == Stage.Revealed && open.value > 0.9f)
                 if (state.stage != Stage.Finished) {
                     HudButton(label, active) {
                         when (state.stage) {
@@ -204,7 +240,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 ConfigScreen(
                     lang = lang,
                     initial = settings,
-                    arAvailable = arAvailable,
+                    arAvailable = onStartAR != null,
                     onCancel = { showConfig = false },
                     onSave = { new ->
                         store.save(new)
@@ -221,10 +257,11 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
 
 @Composable
 private fun HudButton(label: String, enabled: Boolean, onClick: () -> Unit) {
+    val pal = LocalPalette.current
     val glow by rememberInfiniteTransition().animateFloat(
         0.55f, 1f, infiniteRepeatable(tween(900), RepeatMode.Reverse),
     )
-    val c = if (enabled) HudCyan else HudDim
+    val c = if (enabled) pal.primary else pal.primary.copy(alpha = 0.3f)
     Box(
         Modifier
             .alpha(if (enabled) glow else 0.6f)
@@ -234,48 +271,5 @@ private fun HudButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = c, fontSize = 18.sp, letterSpacing = 6.sp, fontWeight = FontWeight.Medium)
-    }
-}
-
-/** Anillos giratorios y línea de barrido tipo HUD. Su intensidad depende de la etapa. */
-@Composable
-private fun HudRings(stage: Stage, progress: Float) {
-    val t = rememberInfiniteTransition()
-    val spin by t.animateFloat(0f, 360f, infiniteRepeatable(tween(14000, easing = LinearEasing)))
-    val spinFast by t.animateFloat(360f, 0f, infiniteRepeatable(tween(5000, easing = LinearEasing)))
-    val sweep by t.animateFloat(0f, 1f, infiniteRepeatable(tween(2200, easing = LinearEasing)))
-    val speedUp = stage == Stage.Analyzing || stage == Stage.Connecting
-
-    Canvas(Modifier.fillMaxSize()) {
-        val c = Offset(size.width / 2, size.height * 0.36f)
-        val r = size.minDimension * 0.34f
-        fun ring(radius: Float, start: Float, sweepDeg: Float, w: Float, alpha: Float, dash: Boolean = false) {
-            drawArc(
-                color = HudCyan.copy(alpha = alpha),
-                startAngle = start, sweepAngle = sweepDeg, useCenter = false,
-                topLeft = Offset(c.x - radius, c.y - radius), size = Size(radius * 2, radius * 2),
-                style = Stroke(
-                    width = w, cap = StrokeCap.Round,
-                    pathEffect = if (dash) PathEffect.dashPathEffect(floatArrayOf(6f, 14f)) else null,
-                ),
-            )
-        }
-        val k = if (speedUp) 2f else 1f
-        ring(r, spin * k, 100f, 3f, 0.9f)
-        ring(r, spin * k + 180f, 70f, 3f, 0.6f)
-        ring(r * 0.82f, spinFast * k, 220f, 2f, 0.7f)
-        ring(r * 0.64f, spin * 2f, 360f, 1.5f, 0.45f, dash = true)
-        ring(r * 1.12f, 0f, 360f, 1f, 0.2f)
-        // Anillo de progreso durante el análisis.
-        if (stage == Stage.Analyzing) ring(r * 1.2f, -90f, 360f * progress, 4f, 1f)
-        // Retícula y línea de barrido.
-        drawLine(HudCyan.copy(alpha = 0.25f), Offset(c.x - r * 1.3f, c.y), Offset(c.x + r * 1.3f, c.y), 1f)
-        drawLine(HudCyan.copy(alpha = 0.25f), Offset(c.x, c.y - r * 1.3f), Offset(c.x, c.y + r * 1.3f), 1f)
-        if (speedUp) {
-            val y = c.y - r + 2 * r * sweep
-            drawLine(HudCyan.copy(alpha = 0.8f), Offset(c.x - r, y), Offset(c.x + r, y), 2f)
-        }
-        // Núcleo.
-        drawCircle(HudCyan.copy(alpha = if (stage == Stage.Ready || stage == Stage.Revealed) 0.55f else 0.25f), r * 0.08f, c)
     }
 }

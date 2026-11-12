@@ -14,7 +14,10 @@ enum class Stage {
     /** Animación de análisis de la fase actual. */
     Analyzing,
 
-    /** Predicción de la fase actual mostrada. */
+    /** Análisis terminado: aparece un «resultado» que el mago debe pulsar para abrirlo. */
+    Result,
+
+    /** Resultado abierto: predicción de la fase actual mostrada. */
     Revealed,
 
     /** Todas las fases reveladas. */
@@ -25,7 +28,7 @@ data class EffectState(val stage: Stage = Stage.Connecting, val phase: Int = 0)
 
 /**
  * Máquina de estados pura (sin UI ni tiempo): la interfaz lanza los eventos cuando acaban sus animaciones.
- * Connecting → Ready → Analyzing → Revealed → (Ready de la siguiente fase | Finished).
+ * Connecting → Ready → Analyzing → Result → Revealed → (Ready de la siguiente fase | Finished).
  */
 class EffectEngine(val phases: List<Phase>) {
     var state: EffectState = EffectState()
@@ -43,9 +46,14 @@ class EffectEngine(val phases: List<Phase>) {
         if (state.stage == Stage.Ready) state = state.copy(stage = Stage.Analyzing)
     }
 
-    /** Acaba la animación de análisis y se muestra la predicción. */
+    /** Acaba la animación de análisis: aparece el resultado pulsable. */
+    fun resultReady() {
+        if (state.stage == Stage.Analyzing) state = state.copy(stage = Stage.Result)
+    }
+
+    /** Se pulsa el resultado: se abre y se muestra la predicción. */
     fun revealed() {
-        if (state.stage == Stage.Analyzing) state = state.copy(stage = Stage.Revealed)
+        if (state.stage == Stage.Result) state = state.copy(stage = Stage.Revealed)
     }
 
     /** Pasa a la siguiente fase (o termina). */
@@ -76,6 +84,7 @@ data class UiTexts(
     val analyzeButton: String,
     val analyzing: String,
     val nextButton: String,
+    val tapToReveal: String,
     val finished: String,
     val phases: List<Phase>,
 )
@@ -89,6 +98,7 @@ object Texts {
             analyzeButton = "ANALYZE",
             analyzing = "Analyzing…",
             nextButton = "CONTINUE",
+            tapToReveal = "TAP TO REVEAL",
             finished = "ANALYSIS COMPLETE",
             phases = listOf(
                 Phase("${p.faceDown} cards are face down."),
@@ -104,6 +114,7 @@ object Texts {
             analyzeButton = "ANALIZAR",
             analyzing = "Analizando…",
             nextButton = "CONTINUAR",
+            tapToReveal = "TOCA PARA REVELAR",
             finished = "ANÁLISIS COMPLETO",
             phases = listOf(
                 Phase("Hay ${p.faceDown} cartas cara abajo."),

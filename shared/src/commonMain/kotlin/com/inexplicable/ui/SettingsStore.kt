@@ -6,6 +6,11 @@ import com.inexplicable.effect.UiTexts
 
 const val MODE_READER = "reader"
 const val MODE_AR = "ar"
+const val MODE_DECK3D = "deck3d"
+
+val DEFAULT_PRIMARY = 0xFF3DDCFFL
+val DEFAULT_SECONDARY = 0xFF3D7BFFL
+val DEFAULT_ACCENT = 0xFFFFC857L
 
 /** Almacenamiento clave-valor local. Android: SharedPreferences. iOS: NSUserDefaults (ver las `actual`). */
 interface KeyValueStore {
@@ -38,8 +43,15 @@ data class AppSettings(
     val detMoveCm: Int = 3,           // cuánto puede moverse el centro entre intentos para contar como estable
     val detShowDebug: Boolean = true, // dibuja los candidatos que se están evaluando
     val detManualTap: Boolean = true, // permite anclar a mano tocando la pantalla
-    val mode: String = MODE_READER,   // modo de juego: MODE_READER o MODE_AR (se aplica al empezar un juego nuevo)
+    val mode: String = MODE_READER,   // modo de juego: MODE_READER, MODE_DECK3D o MODE_AR (se aplica al empezar un juego nuevo)
+    val openMs: Long = 1400,          // duración de la animación al abrir el resultado
+    val hudLevel: Int = 2,            // complejidad visual del HUD y de los efectos: 1 sencillo, 2 medio, 3 complejo
+    val colorPrimary: Long = DEFAULT_PRIMARY,     // paleta (ARGB); la lee también el código nativo de iOS
+    val colorSecondary: Long = DEFAULT_SECONDARY,
+    val colorAccent: Long = DEFAULT_ACCENT,
 ) {
+    fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
+
     fun params() = EffectParams(faceDown, red, extraCard)
 
     /** Fases que se usan realmente: las personalizadas o, si no hay, las del idioma. */
@@ -66,7 +78,12 @@ class SettingsStore(private val prefs: KeyValueStore) {
             detMoveCm = prefs.getLong("detMoveCm", d.detMoveCm.toLong()).toInt(),
             detShowDebug = prefs.getBoolean("detShowDebug", d.detShowDebug),
             detManualTap = prefs.getBoolean("detManualTap", d.detManualTap),
-            mode = prefs.getString("mode")?.takeIf { it == MODE_READER || it == MODE_AR } ?: d.mode,
+            mode = prefs.getString("mode")?.takeIf { it == MODE_READER || it == MODE_AR || it == MODE_DECK3D } ?: d.mode,
+            openMs = prefs.getLong("openMs", d.openMs),
+            hudLevel = prefs.getLong("hudLevel", d.hudLevel.toLong()).toInt().coerceIn(1, 3),
+            colorPrimary = prefs.getLong("colorPrimary", d.colorPrimary),
+            colorSecondary = prefs.getLong("colorSecondary", d.colorSecondary),
+            colorAccent = prefs.getLong("colorAccent", d.colorAccent),
         )
     }
 
@@ -87,6 +104,11 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putBoolean("detShowDebug", s.detShowDebug)
         prefs.putBoolean("detManualTap", s.detManualTap)
         prefs.putString("mode", s.mode)
+        prefs.putLong("openMs", s.openMs)
+        prefs.putLong("hudLevel", s.hudLevel.toLong())
+        prefs.putLong("colorPrimary", s.colorPrimary)
+        prefs.putLong("colorSecondary", s.colorSecondary)
+        prefs.putLong("colorAccent", s.colorAccent)
     }
 
     private companion object { const val SEP = '\u001F' }

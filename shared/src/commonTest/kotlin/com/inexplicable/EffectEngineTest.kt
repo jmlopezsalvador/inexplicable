@@ -16,19 +16,26 @@ class EffectEngineTest {
         e.analyze() // ignorado: aún no está conectado
         assertEquals(Stage.Connecting, e.state.stage)
         e.connected()
-        e.analyze(); e.revealed()
+        e.analyze()
+        e.revealed() // ignorado: aún falta el resultado pulsable
+        assertEquals(Stage.Analyzing, e.state.stage)
+        e.resultReady()
+        assertEquals(Stage.Result, e.state.stage)
+        e.next() // ignorado: no se ha abierto
+        assertEquals(Stage.Result, e.state.stage)
+        e.revealed()
         assertEquals(Stage.Revealed, e.state.stage)
         assertEquals(0, e.state.phase)
         e.next()
         assertEquals(Stage.Ready, e.state.stage)
         assertEquals(1, e.state.phase)
-        e.analyze(); e.revealed(); e.next()
+        e.analyze(); e.resultReady(); e.revealed(); e.next()
         assertEquals(Stage.Finished, e.state.stage)
     }
 
     @Test fun resetReturnsToStart() {
         val e = engine()
-        e.connected(); e.analyze(); e.revealed(); e.next()
+        e.connected(); e.analyze(); e.resultReady(); e.revealed(); e.next()
         e.reset()
         assertEquals(Stage.Connecting, e.state.stage)
         assertEquals(0, e.state.phase)
