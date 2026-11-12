@@ -98,6 +98,26 @@ struct ARTexts {
 
 enum ARStage { case searching, ready, analyzing, result, revealed, finished }
 
+/// Giro continuo de un nodo con velocidad ajustable. `SCNNode` no tiene `speed`: para cambiarla se relanza la acción con otra duración
+/// (la rotación es relativa, así que continúa desde el ángulo actual).
+final class Orbit {
+    let node: SCNNode
+    let seconds: Double
+    let dir: CGFloat
+
+    init(node: SCNNode, seconds: Double, dir: CGFloat) {
+        self.node = node
+        self.seconds = seconds
+        self.dir = dir
+        apply(1)
+    }
+
+    func apply(_ speed: Double) {
+        let action = SCNAction.repeatForever(.rotateBy(x: 0, y: dir * CGFloat.pi * 2, z: 0, duration: seconds / max(0.05, speed)))
+        node.runAction(action, forKey: "orbit")
+    }
+}
+
 // MARK: Modelo y pantalla
 
 /// Estado que se muestra en el HUD y órdenes hacia el coordinador.
@@ -261,6 +281,8 @@ struct ARSceneView: UIViewRepresentable {
         private var deckRoot: SCNNode?
         private var particlesRoot: SCNNode?
         private var ringsRoot: SCNNode?
+        private var particleOrbits: [Orbit] = []
+        private var ringOrbits: [Orbit] = []
         private var cubeNode: SCNNode?
         private var cardNode: SCNNode?
         private var generation = 0          // sube al reiniciar: invalida temporizadores pendientes
@@ -346,6 +368,7 @@ struct ARSceneView: UIViewRepresentable {
             placed = false
             deckAnchor = nil
             deckRoot = nil; particlesRoot = nil; ringsRoot = nil; cubeNode = nil; cardNode = nil
+            particleOrbits = []; ringOrbits = []
             stableCount = 0
             lastCenter = nil
             clearDebug()
@@ -403,8 +426,7 @@ struct ARSceneView: UIViewRepresentable {
             model.progress = 0
             send("analyzing_on")
             SpeechBridge.say(model.texts.analyzing, reveal: false)
-            particlesRoot?.speed = 2.5
-            ringsRoot?.speed = 2.2
+            setSpeeds(particles: 2.5, rings: 2.2)
             let total = max(0.5, cfg.analyzeSeconds)
             let start = Date()
             analysisTimer?.invalidate()
@@ -420,8 +442,7 @@ struct ARSceneView: UIViewRepresentable {
             model.stage = .result
             send("analyzing_off")
             send("ping")
-            particlesRoot?.speed = 1.5
-            ringsRoot?.speed = 1.0
+            setSpeeds(particles: 1.5, rings: 1.0)
             showCube()
         }
 
@@ -464,8 +485,7 @@ struct ARSceneView: UIViewRepresentable {
             }
             addShock(y: 0.12, maxScale: 8, duration: open, color: cfg.accent)
             addShock(y: 0.012, maxScale: 6, duration: open * 1.2, color: cfg.primary)
-            particlesRoot?.speed = 0.8
-            ringsRoot?.speed = 1.0
+            setSpeeds(particles: 0.8, rings: 1.0)
             // Aparece el cartel con la predicción a mitad de la apertura.
             DispatchQueue.main.asyncAfter(deadline: .now() + open * 0.45) { [weak self] in
                 guard let self = self, self.generation == gen else { return }
@@ -519,7 +539,7 @@ struct ARSceneView: UIViewRepresentable {
             guard model.stage == .revealed, model.canContinue else { return }
             cardNode?.removeFromParentNode()
             cardNode = nil
-            particlesRoot?.speed = 0.5
+            setSpeeds(particles: 0.5, rings: 1.0)
             if model.phaseIndex + 1 < model.texts.phases.count {
                 model.phaseIndex += 1
                 model.stage = .ready
@@ -674,8 +694,9 @@ struct ARSceneView: UIViewRepresentable {
         // MARK: Contenido 3D anclado
 
         /// Anillos que giran alrededor de la baraja (nunca la atraviesan). Más anillos cuanto mayor es el nivel.
-        private func makeRings(_ cfg: DetConfig) -> SCNNode {
+        private func makeRings(_ cfg: DetConfig) -> (SCNNode, [Orbit]) {
             let root = SCNNode()
+            var orbits: [Orbit] = []
             func ring(radius: CGFloat, pipe: CGFloat, y: Float, tilt: Float, color: UIColor, seconds: Double, dir: CGFloat) {
                 let torus = SCNTorus(ringRadius: radius, pipeRadius: pipe)
                 let m = SCNMaterial()
@@ -686,7 +707,7 @@ struct ARSceneView: UIViewRepresentable {
                 let node = SCNNode(geometry: torus)
                 node.position = SCNVector3(0, y, 0)
                 node.eulerAngles.x = tilt
-                node.runAction(.repeatForever(.rotateBy(x: 0, y: dir * CGFloat.pi * 2, z: 0, duration: seconds)))
+                orbits.append(Orbit(node: node, seconds: seconds, dir: dir))
                 root.addChildNode(node)
             }
             ring(radius: 0.075, pipe: 0.0015, y: 0.012, tilt: 0, color: cfg.primary, seconds: 4, dir: 1)
@@ -699,12 +720,13 @@ struct ARSceneView: UIViewRepresentable {
                 ring(radius: 0.125, pipe: 0.0008, y: 0.006, tilt: 0, color: cfg.primary.withAlphaComponent(0.5), seconds: 14, dir: 1)
                 ring(radius: 0.08, pipe: 0.0008, y: 0.115, tilt: Float.pi / 12, color: cfg.secondary, seconds: 5, dir: -1)
             }
-            return root
+            return (root, orbits)
         }
 
         /// Partículas que orbitan alrededor de la baraja. Siempre quedan fuera de su huella o por encima de ella.
-        private func makeParticles(_ cfg: DetConfig) -> SCNNode {
+        private func makeParticles(_ cfg: DetConfig) -> (SCNNode, [Orbit]) {
             let root = SCNNode()
+            var orbits: [Orbit] = []
             let count = cfg.level == 1 ? 30 : (cfg.level == 2 ? 70 : 120)
             let colors = [cfg.primary, cfg.secondary, cfg.accent]
             for i in 0..<count {
@@ -723,11 +745,16 @@ struct ARSceneView: UIViewRepresentable {
                 dot.position = SCNVector3(Float.random(in: 0.065...0.11), 0, 0)
                 pivot.addChildNode(dot)
                 let dir: CGFloat = Bool.random() ? 1 : -1
-                pivot.runAction(.repeatForever(.rotateBy(x: 0, y: dir * CGFloat.pi * 2, z: 0, duration: Double.random(in: 3...9))))
+                orbits.append(Orbit(node: pivot, seconds: Double.random(in: 3...9), dir: dir))
                 root.addChildNode(pivot)
             }
-            root.speed = 0.5
-            return root
+            return (root, orbits)
+        }
+
+        /// Cambia la velocidad de giro de los anillos y de las partículas (1 = normal).
+        private func setSpeeds(particles: Double, rings: Double) {
+            particleOrbits.forEach { $0.apply(particles) }
+            ringOrbits.forEach { $0.apply(rings) }
         }
 
         func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
@@ -747,14 +774,17 @@ struct ARSceneView: UIViewRepresentable {
             planeNode.position.y = 0.001
             root.addChildNode(planeNode)
 
-            let rings = makeRings(cfg)
-            let particles = makeParticles(cfg)
+            let (rings, ringOrbits) = makeRings(cfg)
+            let (particles, particleOrbits) = makeParticles(cfg)
             root.addChildNode(rings)
             root.addChildNode(particles)
             DispatchQueue.main.async {
                 self.deckRoot = root
                 self.ringsRoot = rings
                 self.particlesRoot = particles
+                self.ringOrbits = ringOrbits
+                self.particleOrbits = particleOrbits
+                self.setSpeeds(particles: 0.5, rings: 1.0)
             }
             return root
         }
