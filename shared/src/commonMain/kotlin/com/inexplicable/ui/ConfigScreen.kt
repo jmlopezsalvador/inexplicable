@@ -40,6 +40,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inexplicable.effect.Texts
+import com.inexplicable.script.ScriptAction
+import com.inexplicable.script.ScriptBooks
+import com.inexplicable.script.customized
 
 /** Configuración secreta, organizada en secciones plegables. Se abre con pulsación larga arriba a la derecha. */
 @Composable
@@ -51,6 +54,9 @@ fun ConfigScreen(
     backImage: ImageBitmap?,
     onBackPhoto: (ByteArray) -> Unit,
     onClearBack: () -> Unit,
+    bgImage: ImageBitmap?,
+    onBgPhoto: (ByteArray) -> Unit,
+    onClearBg: () -> Unit,
     onSave: (AppSettings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -80,6 +86,23 @@ fun ConfigScreen(
     var cPrimary by remember { mutableStateOf(initial.colorPrimary) }
     var cSecondary by remember { mutableStateOf(initial.colorSecondary) }
     var cAccent by remember { mutableStateOf(initial.colorAccent) }
+    var cBackground by remember { mutableStateOf(initial.colorBackground) }
+    var cText by remember { mutableStateOf(initial.colorText) }
+    var cTable by remember { mutableStateOf(initial.colorTable) }
+    var useBgImage by remember { mutableStateOf(initial.bgImage) }
+    var bgDim by remember { mutableStateOf(initial.bgDimPct / 100f) }
+    var showBgCamera by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
+    // Guion de la conversación: se parte de lo que haya (personalizado o por defecto) para poder editarlo.
+    val scriptBase = remember(lang) { ScriptBooks.forLanguage(lang) }
+    val scriptNow = remember {
+        scriptBase.customized(initial.scriptWake, initial.scriptReplies, initial.scriptPhrases, initial.scriptLinked, initial.scriptFinished)
+    }
+    var sWake by remember { mutableStateOf(scriptNow.wake) }
+    val sReplies = remember { mutableStateListOf<String>().apply { addAll(ScriptAction.entries.map { scriptNow.line(it).reply }) } }
+    val sPhrases = remember { mutableStateListOf<String>().apply { addAll(ScriptAction.entries.map { scriptNow.line(it).phrases.joinToString("\n") }) } }
+    var sLinked by remember { mutableStateOf(scriptNow.linked) }
+    var sFinished by remember { mutableStateOf(scriptNow.finished) }
     // Sonido
     var soundOn by remember { mutableStateOf(initial.soundOn) }
     var soundVolume by remember { mutableStateOf(initial.soundVolume / 100f) }
@@ -186,9 +209,57 @@ fun ConfigScreen(
                 ColorPickerField(t("Principal (HUD, anillos)", "Primary (HUD, rings)"), cPrimary) { cPrimary = it }
                 ColorPickerField(t("Secundario (partículas, detalles)", "Secondary (particles, details)"), cSecondary) { cSecondary = it }
                 ColorPickerField(t("Acento (resultado, destacados)", "Accent (result, highlights)"), cAccent) { cAccent = it }
-                TextButton({ cPrimary = DEFAULT_PRIMARY; cSecondary = DEFAULT_SECONDARY; cAccent = DEFAULT_ACCENT }) {
-                    Text(t("Restaurar colores", "Reset colors"))
+                ColorPickerField(t("Fondo", "Background"), cBackground) { cBackground = it }
+                ColorPickerField(t("Textos", "Text"), cText) { cText = it }
+                ColorPickerField(t("Mesa de la Baraja 3D", "3D deck table"), cTable) { cTable = it }
+                TextButton({
+                    cPrimary = DEFAULT_PRIMARY; cSecondary = DEFAULT_SECONDARY; cAccent = DEFAULT_ACCENT
+                    cBackground = DEFAULT_BACKGROUND; cText = DEFAULT_TEXT; cTable = DEFAULT_TABLE
+                }) { Text(t("Restaurar colores", "Reset colors")) }
+            }
+
+            Section(t("Fondo de pantalla", "Background"), false) {
+                Label(t("Por defecto el fondo es un color liso (el de «Colores»). También puede ser una imagen de la galería o una foto hecha ahora.",
+                    "By default the background is a flat color (the one in “Colors”). It can also be a gallery image or a photo taken now."))
+                if (bgImage != null) {
+                    Image(bgImage, null, Modifier.size(width = 120.dp, height = 120.dp).border(1.dp, accent.copy(alpha = 0.5f)))
                 }
+                SwitchRow(useBgImage && bgImage != null, t("Usar la imagen como fondo", "Use the image as background")) {
+                    useBgImage = it && bgImage != null
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton({ showGallery = true }) { Text(t("Elegir de la galería", "Pick from gallery")) }
+                    TextButton({ showBgCamera = true }) { Text(t("Hacer foto", "Take photo")) }
+                }
+                if (bgImage != null) TextButton({ onClearBg(); useBgImage = false }) { Text(t("Quitar imagen", "Remove image")) }
+                Label(t("Oscurecer la imagen", "Darken the image") + ": " + (bgDim * 100).toInt() + "%")
+                Slider(bgDim, { bgDim = it }, valueRange = 0f..0.9f)
+            }
+
+            Section(t("Guion de la conversación", "Conversation script"), false) {
+                Label(t("Lo que dice Jarvis y las frases que disparan cada paso (una por línea). Solo con «Conversación guionizada». Las frases pueden ser tan largas como quieras: se tolera algún error al reconocerlas.",
+                    "What Jarvis says and the phrases that trigger each step (one per line). Only with “Scripted conversation”. Phrases can be as long as you like; small recognition errors are tolerated."))
+                OutlinedTextField(sWake, { sWake = it }, Modifier.fillMaxWidth(),
+                    label = { Text(t("Palabra de activación", "Wake word")) }, singleLine = true)
+                ScriptAction.entries.forEachIndexed { i, action ->
+                    val label = scriptBase.line(action).label
+                    Text(label, color = accent, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+                    OutlinedTextField(sReplies[i], { sReplies[i] = it }, Modifier.fillMaxWidth(),
+                        label = { Text(t("Respuesta de Jarvis", "Jarvis reply")) })
+                    OutlinedTextField(sPhrases[i], { sPhrases[i] = it }, Modifier.fillMaxWidth(), minLines = 2,
+                        label = { Text(t("Frases que lo disparan", "Trigger phrases")) })
+                }
+                OutlinedTextField(sLinked, { sLinked = it }, Modifier.fillMaxWidth(),
+                    label = { Text(t("Al terminar de enlazar dice", "After linking it says")) })
+                OutlinedTextField(sFinished, { sFinished = it }, Modifier.fillMaxWidth(),
+                    label = { Text(t("Al terminar todas las fases dice", "After all phases it says")) })
+                TextButton({
+                    sWake = scriptBase.wake
+                    ScriptAction.entries.forEachIndexed { i, a ->
+                        sReplies[i] = scriptBase.line(a).reply; sPhrases[i] = scriptBase.line(a).phrases.joinToString("\n")
+                    }
+                    sLinked = scriptBase.linked; sFinished = scriptBase.finished
+                }) { Text(t("Restaurar guion", "Reset script")) }
             }
 
             Section(t("Sonido", "Sound"), false) {
@@ -282,6 +353,16 @@ fun ConfigScreen(
                     connectPauseMs = pauseMs.toLongOrNull()?.coerceIn(0, 5000) ?: d.connectPauseMs,
                     mode = mode, hudLevel = level, control = control,
                     colorPrimary = cPrimary, colorSecondary = cSecondary, colorAccent = cAccent,
+                    colorBackground = cBackground, colorText = cText, colorTable = cTable,
+                    bgImage = useBgImage && bgImage != null, bgDimPct = (bgDim * 100).toInt().coerceIn(0, 90),
+                    // Del guion solo se guarda lo que difiere del por defecto (así los cambios de idioma siguen valiendo para el resto).
+                    scriptWake = if (sWake.trim().lowercase() == scriptBase.wake.lowercase()) "" else sWake.trim(),
+                    scriptReplies = ScriptAction.entries.mapIndexed { i, a -> if (sReplies[i] == scriptBase.line(a).reply) "" else sReplies[i] },
+                    scriptPhrases = ScriptAction.entries.mapIndexed { i, a ->
+                        if (sPhrases[i].lines().map { it.trim() }.filter { it.isNotEmpty() } == scriptBase.line(a).phrases) "" else sPhrases[i]
+                    },
+                    scriptLinked = if (sLinked == scriptBase.linked) "" else sLinked,
+                    scriptFinished = if (sFinished == scriptBase.finished) "" else sFinished,
                     soundOn = soundOn, soundVolume = (soundVolume * 100).toInt().coerceIn(0, 100),
                     voiceOn = voiceOn, voiceStatus = voiceStatus, voiceReveal = voiceReveal,
                     voiceRate = (voiceRate * 100).toInt().coerceIn(50, 200), voicePitch = (voicePitch * 100).toInt().coerceIn(50, 200),
@@ -299,6 +380,22 @@ fun ConfigScreen(
                     matchPct = (matchPct * 100).toInt().coerceIn(50, 100), listenDebug = listenDebug,
                 ))
             }, Modifier.weight(1f)) { Text(t("Guardar", "Save")) }
+        }
+    }
+    if (showGallery) {
+        GalleryPicker { bytes ->
+            showGallery = false
+            if (bytes != null) { onBgPhoto(bytes); useBgImage = true }
+        }
+    }
+    if (showBgCamera) {
+        CameraCapture(
+            frameAspect = 9f / 16f, cropToFrame = false,
+            hint = t("Haz la foto que quieras usar de fondo", "Take the photo you want as background"),
+            cancelLabel = t("Cancelar", "Cancel"),
+        ) { bytes ->
+            showBgCamera = false
+            if (bytes != null) { onBgPhoto(bytes); useBgImage = true }
         }
     }
     if (showCamera) {

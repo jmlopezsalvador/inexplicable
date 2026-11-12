@@ -107,7 +107,7 @@ internal class SceneAnim {
 fun DeckScene(
     stage: Stage, progress: Float, open: Float, level: Int,
     bubble: String?, tapLabel: String, time: State<Float>, speech: SpeechFeedback, onOpen: () -> Unit,
-    backImage: ImageBitmap? = null,
+    backImage: ImageBitmap? = null, showBackground: Boolean = true,
 ) {
     val pal = LocalPalette.current
     var yaw by remember { mutableStateOf(20f) }
@@ -130,8 +130,8 @@ fun DeckScene(
     ) {
         Canvas(Modifier.fillMaxSize()) {
             val t = time.value
-            drawRect(Color(0xFF00050E))
-            drawTable(cam, pal.primary)
+            if (showBackground) drawRect(pal.background)
+            drawTable(cam, pal.primary, pal.table)
             drawFootprint(cam, stage, pal.primary)
             drawDeck(cam, backImage)
             speech.step(t); anim.step(t, stage, progress)
@@ -177,7 +177,7 @@ private fun BoxScope.SceneOverlays(
         ) {
             Text(
                 bubble,
-                color = Color.White, fontSize = 18.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
+                color = pal.text, fontSize = 18.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
                 modifier = Modifier
                     .widthIn(max = 260.dp)
                     .background(Color(0xCC00131F), RoundedCornerShape(10.dp))
@@ -312,9 +312,9 @@ private fun DrawScope.quad(cam: SceneCamera, pts: List<V3>, fill: Color?, stroke
     if (stroke != null) drawPath(path, stroke, style = Stroke(w))
 }
 
-private fun DrawScope.drawTable(cam: SceneCamera, grid: Color) {
+private fun DrawScope.drawTable(cam: SceneCamera, grid: Color, table: Color) {
     val s = 70f
-    quad(cam, listOf(V3(-s, 0f, -s), V3(s, 0f, -s), V3(s, 0f, s), V3(-s, 0f, s)), Color(0xFF0A1B26))
+    quad(cam, listOf(V3(-s, 0f, -s), V3(s, 0f, -s), V3(s, 0f, s), V3(-s, 0f, s)), table)
     var g = -40f
     while (g <= 40f) {
         val a = if (g == 0f) 0.28f else 0.12f

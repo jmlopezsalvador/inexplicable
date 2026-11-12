@@ -6,12 +6,16 @@ import Shared
 // devuelve cada frase completa (cuando el hablante hace una pausa) con `IosListenHooks.deliver`.
 // Limitaciones: el reconocedor de Apple corta cada petición a ~1 min, así que se reinicia tras cada frase; el micrófono abierto muestra
 // el indicador de iOS; el audio de la propia app (voz de Jarvis) lo filtra Kotlin ignorando lo oído mientras la app habla.
+//
+// Robustez: el motor de audio se crea solo al empezar a escuchar y se descarta al parar (no se toca `inputNode` si no se está escuchando),
+// y antes de instalar el «tap» se comprueba que el formato del micrófono sea válido. Un formato inválido (p. ej. justo al cambiar la sesión
+// de audio) lanza una excepción de Objective-C que Swift no puede capturar y cierra la app.
 
 final class SpeechListener {
+    private var engine: AVAudioEngine?
     private var recognizer: SFSpeechRecognizer?
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
-    private let engine = AVAudioEngine()
     private var active = false
     private var lang = "es"
     private var lastText = ""
@@ -25,7 +29,8 @@ final class SpeechListener {
             DispatchQueue.main.async {
                 guard status == .authorized else { return }
                 AVAudioSession.sharedInstance().requestRecordPermission { granted in
-                    DispatchQueue.main.async { if granted { self.begin() } }
+                    // Se espera un instante tras el aviso de permiso: la sesión de audio aún se está reconfigurando.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { if granted { self.begin() } }
                 }
             }
         }
@@ -33,11 +38,16 @@ final class SpeechListener {
 
     private func begin() {
         if active { return }
-        active = true
-        // Grabar y reproducir a la vez (la voz de Jarvis y los efectos siguen sonando).
+        // Grabar y reproducir a la vez; por el altavoz (no por el auricular) y mezclando con otras apps.
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth])
-        try? session.setActive(true)
+        do {
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .mixWithOthers, .allowBluetooth])
+            try session.setActive(true)
+        } catch {
+            return
+        }
+        AppAudio.recording = true
+        active = true
         startTask()
     }
 
@@ -47,21 +57,29 @@ final class SpeechListener {
         let gen = generation
         let rec = SFSpeechRecognizer(locale: Locale(identifier: lang == "en" ? "en-US" : "es-ES"))
         recognizer = rec
-        guard let recognizer = rec, recognizer.isAvailable else { active = false; return }
+        guard let recognizer = rec, recognizer.isAvailable else { stop(); return }
+
+        let engine = AVAudioEngine()
+        let input = engine.inputNode
+        let format = input.outputFormat(forBus: 0)
+        // Sin micrófono utilizable (formato a 0 Hz o sin canales) no se instala nada: evita la excepción.
+        guard format.sampleRate > 0, format.channelCount > 0 else { stop(); return }
 
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.shouldReportPartialResults = true
         if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
         request = req
 
-        let input = engine.inputNode
-        input.removeTap(onBus: 0)
-        let format = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             self?.request?.append(buffer)
         }
         engine.prepare()
-        do { try engine.start() } catch { active = false; return }
+        do { try engine.start() } catch {
+            input.removeTap(onBus: 0)
+            stop()
+            return
+        }
+        self.engine = engine
 
         task = recognizer.recognitionTask(with: req) { [weak self] result, error in
             DispatchQueue.main.async {
@@ -91,19 +109,28 @@ final class SpeechListener {
         }
     }
 
+    /// Para el motor y la petición actuales (sin tocar nada si no había).
     private func teardown() {
         generation += 1
         task?.cancel(); task = nil
         request?.endAudio(); request = nil
-        if engine.isRunning { engine.stop() }
-        engine.inputNode.removeTap(onBus: 0)
+        if let engine = engine {
+            if engine.isRunning { engine.stop() }
+            engine.inputNode.removeTap(onBus: 0)
+        }
+        engine = nil
     }
 
     func stop() {
+        let wasActive = active
         active = false
         silenceTimer?.invalidate()
         lastText = ""
         teardown()
+        if wasActive {
+            AppAudio.recording = false
+            AppAudio.playback() // vuelve a la sesión de solo reproducción
+        }
     }
 }
 

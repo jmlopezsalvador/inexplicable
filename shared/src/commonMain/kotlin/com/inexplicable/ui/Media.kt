@@ -25,6 +25,13 @@ fun base64ToBytes(text: String): ByteArray? = try { Base64.decode(text) } catch 
 expect fun CameraCapture(frameAspect: Float, cropToFrame: Boolean, hint: String, cancelLabel: String, onResult: (ByteArray?) -> Unit)
 
 /**
+ * Abre la galería para elegir una imagen y devuelve un JPEG derecho y reducido (lado mayor ≤ 1280 px), o `null` si se cancela.
+ * Android: selector del sistema. iOS: `PHPickerViewController` desde Swift (`Gallery.swift`).
+ */
+@Composable
+expect fun GalleryPicker(onResult: (ByteArray?) -> Unit)
+
+/**
  * Escucha continua del micrófono con reconocimiento de voz del sistema. `onHeard` recibe frases completas (cuando el hablante hace una pausa).
  * Android: `SpeechRecognizer`. iOS: `SFSpeechRecognizer` desde Swift (`ListenBridge`). Hay que parar la escucha mientras la app habla.
  */

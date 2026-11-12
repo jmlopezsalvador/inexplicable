@@ -15,6 +15,9 @@ const val CONTROL_SCRIPT = "script"     // conversación guionizada: la app habl
 val DEFAULT_PRIMARY = 0xFF3DDCFFL
 val DEFAULT_SECONDARY = 0xFF3D7BFFL
 val DEFAULT_ACCENT = 0xFFFFC857L
+val DEFAULT_BACKGROUND = 0xFF00050EL
+val DEFAULT_TEXT = 0xFFFFFFFFL
+val DEFAULT_TABLE = 0xFF0A1B26L
 
 /** Almacenamiento clave-valor local. Android: SharedPreferences. iOS: NSUserDefaults (ver las `actual`). */
 interface KeyValueStore {
@@ -62,13 +65,27 @@ data class AppSettings(
     val voicePitch: Int = 100,        // tono en % (50..200)
     val speechFx: Boolean = true,     // los efectos reaccionan a la voz (pulsos al decir cada palabra)
     val speechFxPct: Int = 100,       // intensidad de esa reacción en % (0..200)
+    val colorBackground: Long = DEFAULT_BACKGROUND, // fondo liso de toda la app
+    val colorText: Long = DEFAULT_TEXT,             // color de los textos principales
+    val colorTable: Long = DEFAULT_TABLE,           // superficie de la mesa de la Baraja 3D
+    val bgImage: Boolean = false,                   // usar la imagen de fondo (galería o foto) en lugar del color liso
+    val bgDimPct: Int = 45,                         // cuánto se oscurece la imagen de fondo (0..90) para que se lean los efectos
+    // Guion de la conversación. Listas vacías o entradas en blanco = valores por defecto del idioma (ver `ScriptBook.customized`).
+    val scriptWake: String = "",                    // palabra de activación («jarvis» si está vacía)
+    val scriptReplies: List<String> = emptyList(),  // respuesta de Jarvis por acción, en el orden de `ScriptAction`
+    val scriptPhrases: List<String> = emptyList(),  // frases-disparador por acción (una por línea), mismo orden
+    val scriptLinked: String = "",                  // lo que dice al terminar de enlazar
+    val scriptFinished: String = "",                // lo que dice al acabar todas las fases
     val control: String = CONTROL_BUTTONS, // cómo avanza el efecto (se aplica al empezar un juego nuevo)
     val voiceListen: Boolean = false, // en el control por conversación: escuchar al mago con el micrófono
     val wakeRequired: Boolean = true, // exigir la palabra «Jarvis» en las órdenes (no en el saludo)
     val matchPct: Int = 80,           // % de coincidencia mínimo entre lo oído y la frase esperada
     val listenDebug: Boolean = true,  // muestra en pantalla lo último que se ha oído (para ajustar; se quitará)
 ) {
-    fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
+    fun palette() = Palette(
+        colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent),
+        colorFrom(colorBackground), colorFrom(colorText), colorFrom(colorTable),
+    )
 
     fun params() = EffectParams(faceDown, red, extraCard)
 
@@ -111,6 +128,16 @@ class SettingsStore(private val prefs: KeyValueStore) {
             voicePitch = prefs.getLong("voicePitch", d.voicePitch.toLong()).toInt().coerceIn(50, 200),
             speechFx = prefs.getBoolean("speechFx", d.speechFx),
             speechFxPct = prefs.getLong("speechFxPct", d.speechFxPct.toLong()).toInt().coerceIn(0, 200),
+            colorBackground = prefs.getLong("colorBackground", d.colorBackground),
+            colorText = prefs.getLong("colorText", d.colorText),
+            colorTable = prefs.getLong("colorTable", d.colorTable),
+            bgImage = prefs.getBoolean("bgImage", d.bgImage),
+            bgDimPct = prefs.getLong("bgDimPct", d.bgDimPct.toLong()).toInt().coerceIn(0, 90),
+            scriptWake = prefs.getString("scriptWake") ?: "",
+            scriptReplies = prefs.getString("scriptReplies")?.takeIf { it.isNotEmpty() }?.split(SEP) ?: emptyList(),
+            scriptPhrases = prefs.getString("scriptPhrases")?.takeIf { it.isNotEmpty() }?.split(SEP) ?: emptyList(),
+            scriptLinked = prefs.getString("scriptLinked") ?: "",
+            scriptFinished = prefs.getString("scriptFinished") ?: "",
             control = prefs.getString("control")?.takeIf { it == CONTROL_BUTTONS || it == CONTROL_SCRIPT } ?: d.control,
             voiceListen = prefs.getBoolean("voiceListen", d.voiceListen),
             wakeRequired = prefs.getBoolean("wakeRequired", d.wakeRequired),
@@ -150,6 +177,16 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putLong("voicePitch", s.voicePitch.toLong())
         prefs.putBoolean("speechFx", s.speechFx)
         prefs.putLong("speechFxPct", s.speechFxPct.toLong())
+        prefs.putLong("colorBackground", s.colorBackground)
+        prefs.putLong("colorText", s.colorText)
+        prefs.putLong("colorTable", s.colorTable)
+        prefs.putBoolean("bgImage", s.bgImage)
+        prefs.putLong("bgDimPct", s.bgDimPct.toLong())
+        prefs.putString("scriptWake", s.scriptWake)
+        prefs.putString("scriptReplies", s.scriptReplies.joinToString(SEP.toString()))
+        prefs.putString("scriptPhrases", s.scriptPhrases.joinToString(SEP.toString()))
+        prefs.putString("scriptLinked", s.scriptLinked)
+        prefs.putString("scriptFinished", s.scriptFinished)
         prefs.putString("control", s.control)
         prefs.putBoolean("voiceListen", s.voiceListen)
         prefs.putBoolean("wakeRequired", s.wakeRequired)
@@ -161,6 +198,19 @@ class SettingsStore(private val prefs: KeyValueStore) {
     fun loadBackPhoto(): String? = prefs.getString("backPhoto")?.takeIf { it.isNotEmpty() }
 
     fun saveBackPhoto(base64: String?) = prefs.putString("backPhoto", base64 ?: "")
+
+    /** Imagen de fondo (JPEG en base64, de la galería o de una foto) o null si no hay. */
+    fun loadBgImage(): String? = prefs.getString("bgImageData")?.takeIf { it.isNotEmpty() }
+
+    fun saveBgImage(base64: String?) = prefs.putString("bgImageData", base64 ?: "")
+
+    /**
+     * Guarda que se está arrancando la escucha por voz. Si la app se cierra de golpe al activarla, al volver a abrirla la marca sigue puesta y
+     * la escucha se desactiva sola (evita quedarse atrapado en un fallo al arrancar). Se borra pasados unos segundos sin problemas.
+     */
+    fun listenGuard(): Boolean = prefs.getBoolean("listenGuard", false)
+
+    fun setListenGuard(on: Boolean) = prefs.putBoolean("listenGuard", on)
 
     /**
      * Publica las fases y textos ya resueltos (idioma, números, personalización) para la RA nativa de iOS, que los lee de

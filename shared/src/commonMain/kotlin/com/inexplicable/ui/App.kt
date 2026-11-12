@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -49,12 +52,12 @@ import com.inexplicable.effect.Stage
 import com.inexplicable.effect.Texts
 import com.inexplicable.script.ScriptAction
 import com.inexplicable.script.ScriptBooks
+import com.inexplicable.script.customized
 import com.inexplicable.script.expectedAction
 import com.inexplicable.script.hear
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
-
-private val HudBg = Color(0xFF00050E)
 
 /** Escribe `text` carácter a carácter (efecto máquina de escribir). */
 @Composable
@@ -71,8 +74,8 @@ private fun InexplicableTheme(palette: Palette, content: @Composable () -> Unit)
     WithPalette(palette) {
         MaterialTheme(
             colorScheme = darkColorScheme(
-                primary = palette.primary, onPrimary = HudBg, background = HudBg, surface = HudBg, onSurface = Color.White,
-                onBackground = Color.White, outline = palette.primary.copy(alpha = 0.3f), secondary = palette.primary,
+                primary = palette.primary, onPrimary = palette.background, background = palette.background, surface = palette.background,
+                onSurface = palette.text, onBackground = palette.text, outline = palette.primary.copy(alpha = 0.3f), secondary = palette.primary,
             ),
             content = content,
         )
@@ -87,6 +90,8 @@ fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) 
     val speaker = rememberSpeaker()
     var backBytes by remember { mutableStateOf(store.loadBackPhoto()?.let(::base64ToBytes)) }
     val backImage = remember(backBytes) { backBytes?.let(::decodeImage) }
+    var bgBytes by remember { mutableStateOf(store.loadBgImage()?.let(::base64ToBytes)) }
+    val bgImg = remember(bgBytes) { bgBytes?.let(::decodeImage) }
     InexplicableTheme(initial.palette()) {
         ConfigScreen(
             lang, initial, arAvailable,
@@ -94,6 +99,9 @@ fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) 
             backImage = backImage,
             onBackPhoto = { store.saveBackPhoto(bytesToBase64(it)); backBytes = it },
             onClearBack = { store.saveBackPhoto(null); backBytes = null },
+            bgImage = bgImg,
+            onBgPhoto = { store.saveBgImage(bytesToBase64(it)); bgBytes = it },
+            onClearBg = { store.saveBgImage(null); bgBytes = null },
             onSave = { speaker.stop(); store.save(it); onClose() },
             onCancel = { speaker.stop(); onClose() },
         )
@@ -147,7 +155,11 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     val phases = remember(settings) { settings.effectivePhases(texts) }
     // Control por conversación: el efecto espera órdenes (saludar, enlazar, analizar…) y la app responde con su guion.
     val scriptMode = settings.control == CONTROL_SCRIPT
-    val book = remember(lang) { ScriptBooks.forLanguage(lang) }
+    val book = remember(lang, settings) {
+        ScriptBooks.forLanguage(lang).customized(
+            settings.scriptWake, settings.scriptReplies, settings.scriptPhrases, settings.scriptLinked, settings.scriptFinished,
+        )
+    }
     val photoMode = settings.mode == MODE_PHOTO
     // Modo Foto: antes de enlazar hay que hacer y ajustar la foto de la baraja.
     var photoStep by remember { mutableStateOf(0) }            // 0 sin foto, 1 cámara, 2 ajustando esquinas, 3 listo
@@ -156,6 +168,15 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     // Foto del dorso de la baraja 3D.
     var backVersion by remember { mutableStateOf(0) }
     val backImage = remember(settings, backVersion) { store.loadBackPhoto()?.let(::base64ToBytes)?.let(::decodeImage) }
+    // Imagen de fondo (galería o foto) en lugar del color liso.
+    var bgVersion by remember { mutableStateOf(0) }
+    val bgImg = remember(settings, bgVersion) {
+        if (settings.bgImage) store.loadBgImage()?.let(::base64ToBytes)?.let(::decodeImage) else null
+    }
+    val bgStored = remember(bgVersion) { store.loadBgImage()?.let(::base64ToBytes)?.let(::decodeImage) } // la guardada (para la configuración)
+    var confirmReset by remember { mutableStateOf(false) }         // diálogo de «restablecer»
+    var confirmExit by remember { mutableStateOf(false) }          // el botón de salir pide una segunda pulsación
+    var notice by remember { mutableStateOf("") }                  // aviso en el menú
     val engine = remember(phases, scriptMode, photoMode) { EffectEngine(phases, startIdle = scriptMode || photoMode) }
     var state by remember(engine) { mutableStateOf(engine.state) }
     var resetCount by remember { mutableStateOf(0) }
@@ -167,13 +188,13 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     var subtitle by remember { mutableStateOf("") }
     val time = rememberTime()
 
-    // Sonido: ambiente siempre (menú incluido); análisis, resultado y apertura siguen las etapas.
+    // Sonido: análisis, resultado y apertura siguen las etapas. (El ruido de ambiente se eliminó: resultaba molesto.)
     val sound = remember { createSoundEngine() }
     DisposableEffect(Unit) { onDispose { sound.release() } }
     LifecycleEffect(onPause = { sound.pause() }, onResume = { sound.resume() })
     LaunchedEffect(settings.soundOn, settings.soundVolume) {
         sound.volume(settings.soundVolume / 100f)
-        sound.ambient(settings.soundOn)
+        sound.ambient(false)
     }
     LaunchedEffect(state.stage, started, settings.soundOn) {
         val on = settings.soundOn && started
@@ -263,7 +284,47 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     }
     val onHeardState by rememberUpdatedState(onHeard)
     LaunchedEffect(started, scriptMode, settings.voiceListen, lang) {
-        if (started && scriptMode && settings.voiceListen) listener.start(lang) { onHeardState(it) } else listener.stop()
+        if (started && scriptMode && settings.voiceListen) {
+            // Marca de seguridad: si la app se cierra de golpe mientras se escucha (p. ej. al conceder el permiso), la marca queda puesta y
+            // al volver a abrirla la escucha se desactiva sola. Al salir con normalidad la marca se borra.
+            store.setListenGuard(true)
+            try {
+                listener.start(lang) { onHeardState(it) }
+                awaitCancellation()
+            } finally {
+                store.setListenGuard(false)
+            }
+        } else {
+            listener.stop()
+        }
+    }
+    // Al abrir la app: si la vez anterior se cerró durante la escucha por voz, se desactiva para no quedar atrapado.
+    LaunchedEffect(Unit) {
+        if (store.listenGuard()) {
+            store.setListenGuard(false)
+            val s = store.load()
+            if (s.voiceListen) { val n = s.copy(voiceListen = false); store.save(n); settings = n }
+            notice = if (lang == "en") "Voice listening was turned off because the app closed while starting it."
+                     else "La escucha por voz se desactivó porque la app se cerró al activarla."
+        }
+    }
+
+    /** Sale del juego y vuelve al menú principal. */
+    fun exitToMenu() {
+        engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; heard = ""; sync()
+        photoStep = 0; photoImage = null; corners = defaultDeckCorners()
+        listener.stop(); speaker.stop()
+        confirmExit = false
+        started = false
+    }
+
+    /** Restablece toda la configuración (y las imágenes guardadas) a los valores por defecto. */
+    fun resetAll() {
+        val d = AppSettings()
+        store.save(d); store.saveBackPhoto(null); store.saveBgImage(null); store.setListenGuard(false)
+        settings = d; backVersion++; bgVersion++
+        confirmReset = false
+        notice = if (lang == "en") "Settings restored to defaults." else "Configuración restablecida."
     }
 
     // Efecto de conexión con la baraja.
@@ -296,7 +357,12 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     SystemBarsEffect()
     InexplicableTheme(settings.palette()) {
         val pal = LocalPalette.current
-        Box(Modifier.fillMaxSize().background(HudBg)) {
+        Box(Modifier.fillMaxSize().background(pal.background)) {
+            // Fondo: imagen (galería o foto) oscurecida, o el color liso de la paleta.
+            if (bgImg != null) {
+                Image(bgImg, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                Box(Modifier.fillMaxSize().background(pal.background.copy(alpha = settings.bgDimPct / 100f)))
+            }
             val shownPhase = phases.getOrNull(state.phase)?.text ?: ""
             val photo = photoImage
             val photoShown = started && photoMode && photoStep == 3 && photo != null
@@ -306,6 +372,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
                     bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
                     tapLabel = texts.tapToReveal, time = time, speech = speech, onOpen = ::openResult, backImage = backImage,
+                    showBackground = bgImg == null,
                 )
             } else if (photoShown && photo != null) {
                 PhotoScene(
@@ -335,8 +402,13 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text(texts.title, color = pal.primary, fontSize = 28.sp, letterSpacing = 10.sp, fontWeight = FontWeight.Light)
-                    Box(Modifier.weight(1f))
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+                        if (notice.isNotBlank()) {
+                            Text(notice, color = pal.accent, fontSize = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 24.dp))
+                        }
+                    }
                     HudButton(if (lang == "en") "START" else "EMPEZAR", true) {
+                        notice = ""
                         // Se relee la configuración (pudo cambiarse desde la RA) y se fija el modo de este juego.
                         val fresh = store.load()
                         settings = fresh
@@ -351,6 +423,11 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                             playMode = if (fresh.mode == MODE_AR) MODE_READER else fresh.mode
                             started = true
                         }
+                    }
+                    // Ajustes y restablecer: solo se llega a ellos desde el menú principal (en el juego solo se puede salir).
+                    Row(Modifier.padding(top = 18.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        MiniButton(if (lang == "en") "SETTINGS" else "AJUSTES") { settings = store.load(); notice = ""; showConfig = true }
+                        MiniButton(if (lang == "en") "RESET" else "RESTABLECER") { confirmReset = true }
                     }
                 }
             } else Column(
@@ -386,7 +463,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                         }
                         Text(
                             message,
-                            color = if (state.stage == Stage.Result) pal.accent else Color.White,
+                            color = if (state.stage == Stage.Result) pal.accent else pal.text,
                             fontSize = if (state.stage == Stage.Revealed) 26.sp else 16.sp,
                             fontFamily = FontFamily.Monospace,
                             lineHeight = if (state.stage == Stage.Revealed) 36.sp else 22.sp,
@@ -446,23 +523,30 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 )
             }
 
-            // Zonas ocultas: pulsación larga arriba a la izquierda = reset; arriba a la derecha = configuración.
-            Box(
-                Modifier.align(Alignment.TopStart).size(88.dp).pointerInput(Unit) {
-                    detectTapGestures(onLongPress = {
-                        engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; heard = ""; sync()
-                        photoStep = 0; photoImage = null; corners = defaultDeckCorners()
-                        listener.stop()
-                        started = false // vuelve al menú principal
-                    })
-                },
-            )
-            Box(
-                Modifier.align(Alignment.TopEnd).size(88.dp).pointerInput(Unit) {
-                    detectTapGestures(onLongPress = { settings = store.load(); showConfig = true })
-                },
-            )
-            if (showConfig) {
+            // En el juego solo se puede salir al menú (con una segunda pulsación, para no cortar el efecto sin querer).
+            if (started) {
+                LaunchedEffect(confirmExit) { if (confirmExit) { delay(3000); confirmExit = false } }
+                Box(Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 14.dp)) {
+                    MiniButton(if (confirmExit) (if (lang == "en") "EXIT?" else "¿SALIR?") else "✕") {
+                        if (confirmExit) exitToMenu() else confirmExit = true
+                    }
+                }
+            }
+            if (confirmReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmReset = false },
+                    title = { Text(if (lang == "en") "Restore defaults?" else "¿Restablecer?") },
+                    text = {
+                        Text(
+                            if (lang == "en") "All settings, the deck-back photo and the background image will return to their default values."
+                            else "Toda la configuración, la foto del dorso y la imagen de fondo volverán a sus valores por defecto.",
+                        )
+                    },
+                    confirmButton = { TextButton({ resetAll() }) { Text(if (lang == "en") "RESTORE" else "RESTABLECER") } },
+                    dismissButton = { TextButton({ confirmReset = false }) { Text(if (lang == "en") "Cancel" else "Cancelar") } },
+                )
+            }
+            if (showConfig && !started) {
                 ConfigScreen(
                     lang = lang,
                     initial = settings,
@@ -471,6 +555,9 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     backImage = backImage,
                     onBackPhoto = { store.saveBackPhoto(bytesToBase64(it)); backVersion++ },
                     onClearBack = { store.saveBackPhoto(null); backVersion++ },
+                    bgImage = bgStored,
+                    onBgPhoto = { store.saveBgImage(bytesToBase64(it)); bgVersion++ },
+                    onClearBg = { store.saveBgImage(null); bgVersion++ },
                     onCancel = { speaker.stop(); showConfig = false },
                     onSave = { new ->
                         speaker.stop()
@@ -502,5 +589,20 @@ private fun HudButton(label: String, enabled: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Text(label, color = c, fontSize = 18.sp, letterSpacing = 6.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+/** Botón pequeño con borde (ajustes, restablecer, salir). */
+@Composable
+private fun MiniButton(label: String, onClick: () -> Unit) {
+    val pal = LocalPalette.current
+    Box(
+        Modifier
+            .border(1.dp, pal.primary.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = pal.primary, fontSize = 13.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Medium)
     }
 }

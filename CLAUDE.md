@@ -34,8 +34,9 @@ El usuario habla español: responde y comenta el código en español.
 Paquete `com.inexplicable`. Herramienta de apoyo para un efecto de magia llamado «Inexplicable»: la app finge ser un lector/predictor
 de la baraja real y revela 4 predicciones por fases (cartas boca abajo y rojas, negras pares, fallo aparente y excepción), guiada en
 secreto por el mago. Modos: «Lector» (pantalla animada, primero) y «RA» (cámara que detecta/sigue el dorso de la baraja con objetos 3D).
-Configuración secreta por pulsación larga en una esquina (predicciones, carta extra, tiempos, voz TTS, dorsos); reset oculto arriba a la
-izquierda (vuelve al menú principal). Multiidioma (el del móvil), todo local.
+Configuración (predicciones, carta extra, tiempos, colores y fondo, voz TTS, guion, dorsos) y «Restablecer» (vuelve a los valores por defecto)
+son **botones visibles solo en el menú principal**; dentro del juego solo hay un botón ✕ que sale al menú (pide una segunda pulsación).
+Ya no hay zonas ocultas de pulsación larga. Multiidioma (el del móvil), todo local.
 **Flujo:** la app arranca en un menú (anillos + EMPEZAR). EMPEZAR inicia un juego nuevo en el modo elegido en la configuración
 (`mode`: HUD plano `reader`, Baraja 3D `deck3d` o RA `ar`; solo se aplica al empezar). Cada fase: Analizar → animación → aparece un
 «resultado» pulsable (`Stage.Result`) → al tocarlo se abre → se lee la predicción (`Stage.Revealed`) → Continuar. La paleta (3 colores),
@@ -54,6 +55,10 @@ se dibujan sobre la foto (`PhotoScene`): `Photo.kt` calcula la homografía y la 
 `IosSpeechHooks.deliver`). `SpeechFeedback` (en `Speech.kt`) los convierte en `kick` (impulso por palabra) y `level` (mientras habla), con pulsos sintéticos si no
 llegan palabras reales; HUD, Baraja 3D, modo Foto y la RA de iOS reaccionan (anillos, partículas, visualizador de barras y ondas). Ajustes `speechFx` y `speechFxPct`.
 Los eventos reales también afinan el silenciado del micrófono (`mutedUntil` en `App.kt`).
+**Colores y fondo:** la paleta tiene 6 colores (principal, secundario, acento, fondo, texto, mesa 3D). El fondo puede ser el color liso o una imagen (galería con `GalleryPicker` o foto con `CameraCapture`), oscurecida con `bgDimPct`; se guarda en base64 con `SettingsStore.loadBgImage`.
+**Guion editable:** la sección «Guion de la conversación» de la configuración edita la palabra de activación, las respuestas y las frases-disparador (`AppSettings.script*`); solo se guarda lo que difiere del guion por defecto (`ScriptBook.customized`).
+**Guardián de la escucha:** al empezar a escuchar se marca `listenGuard`; si la app se cierra de golpe, al abrirla se desactiva `voiceListen` y se avisa.
+**Audio en iOS:** la sesión es `.playback` (suena aunque el interruptor de silencio esté activado; con `.ambient` solo sonaba con auriculares) y pasa a `.playAndRecord` solo mientras se escucha (`AppAudio` en `SoundEngine.swift`). Se eliminó el ruido blanco de ambiente.
 **Sonido y voz:** `Sound.kt` (sintetizador común `Synth`, sin ficheros; Android lo reproduce con `AudioTrack`, iOS lo replica en Swift en
 `SoundEngine.swift`, hay que mantener ambos iguales) y `Speech.kt` (TTS: `TextToSpeech` en Android; en iOS Kotlin manda órdenes de texto a
 `SpeechBridge` en Swift mediante `IosSpeechHooks`/`IosSoundHooks`). Todo lo nativo de iOS que no se pueda hacer en Kotlin se hace así: un

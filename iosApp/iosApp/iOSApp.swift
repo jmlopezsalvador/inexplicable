@@ -11,6 +11,7 @@ struct iOSApp: App {
         SpeechBridge.install()
         CameraBridge.install()
         ListenBridge.install()
+        GalleryBridge.install()
     }
 
     var body: some Scene {

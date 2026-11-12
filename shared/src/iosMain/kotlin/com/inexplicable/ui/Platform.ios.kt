@@ -62,6 +62,31 @@ actual fun CameraCapture(frameAspect: Float, cropToFrame: Boolean, hint: String,
     }
 }
 
+/** Puente con el selector de galería de Swift (`GalleryBridge` en `Gallery.swift`): Kotlin pide con `request` y Swift contesta con `deliver`. */
+object IosGalleryHooks {
+    var handler: ((String) -> Unit)? = null
+    private var callback: ((String) -> Unit)? = null
+
+    fun request(cb: (String) -> Unit) {
+        callback = cb
+        val h = handler
+        if (h == null) { callback = null; cb("") } else h("pick")
+    }
+
+    fun deliver(base64: String) {
+        val cb = callback
+        callback = null
+        cb?.invoke(base64)
+    }
+}
+
+@Composable
+actual fun GalleryPicker(onResult: (ByteArray?) -> Unit) {
+    LaunchedEffect(Unit) {
+        IosGalleryHooks.request { b64 -> onResult(if (b64.isBlank()) null else base64ToBytes(b64)) }
+    }
+}
+
 /**
  * Puente con el reconocimiento de voz de Swift (`ListenBridge`): órdenes «start» (con el idioma) y «stop»; Swift devuelve cada frase
  * con `deliver`.

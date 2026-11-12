@@ -10,8 +10,16 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-/** Paleta de la app: color principal (HUD, anillos), secundario (partículas, detalles) y de acento (resultado, destacados). */
-data class Palette(val primary: Color, val secondary: Color, val accent: Color)
+/**
+ * Paleta de la app: color principal (HUD, anillos), secundario (partículas, detalles) y de acento (resultado, destacados);
+ * además el fondo liso, el color de los textos y el de la mesa de la Baraja 3D.
+ */
+data class Palette(
+    val primary: Color, val secondary: Color, val accent: Color,
+    val background: Color = Color(DEFAULT_BACKGROUND),
+    val text: Color = Color(DEFAULT_TEXT),
+    val table: Color = Color(DEFAULT_TABLE),
+)
 
 val LocalPalette = staticCompositionLocalOf { Palette(Color(DEFAULT_PRIMARY), Color(DEFAULT_SECONDARY), Color(DEFAULT_ACCENT)) }
 

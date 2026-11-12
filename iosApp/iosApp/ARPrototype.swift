@@ -141,7 +141,7 @@ final class ARModel: ObservableObject {
 
 struct ARScreen: View {
     @StateObject private var model = ARModel()
-    @State private var showConfig = false
+    @State private var confirmExit = false   // el botón de salir pide una segunda pulsación
     let onClose: () -> Void
 
     private var primary: Color { Color(model.cfg.primary) }
@@ -149,18 +149,16 @@ struct ARScreen: View {
     var body: some View {
         ZStack {
             ARSceneView(model: model).ignoresSafeArea()
-            // Zonas ocultas: pulsación larga arriba a la izquierda = reset (vuelve al menú); arriba a la derecha = configuración.
+            // En el juego solo se puede salir al menú (la configuración y el restablecer están en el menú principal).
             VStack {
                 HStack {
-                    Color.clear.frame(width: 88, height: 88).contentShape(Rectangle())
-                        .onLongPressGesture(minimumDuration: 1.0) { onClose() }
                     Spacer()
-                    Color.clear.frame(width: 88, height: 88).contentShape(Rectangle())
-                        .onLongPressGesture(minimumDuration: 1.0) { showConfig = true }
+                    closeButton
                 }
+                .padding(.top, 8)
+                .padding(.trailing, 14)
                 Spacer()
             }
-            .ignoresSafeArea()
             VStack {
                 VStack(spacing: 4) {
                     Text("INEXPLICABLE")
@@ -178,22 +176,26 @@ struct ARScreen: View {
                 .padding(.horizontal, 24)
                 Spacer()
                 actionButton
-                HStack(spacing: 24) {
-                    Button("REINICIAR") { model.resetToken += 1 }
-                    Button("CERRAR") { onClose() }
-                }
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
-                .foregroundColor(primary.opacity(0.7))
-                .padding(.bottom, 40)
-                .padding(.top, 12)
+                    .padding(.bottom, 40)
             }
         }
         .background(Color.black)
-        // La configuración se abre encima sin cerrar la sesión de RA; al cerrarla se recargan los ajustes.
-        .fullScreenCover(isPresented: $showConfig) {
-            ConfigComposeView(onClose: { showConfig = false; model.reloadConfig() })
-                .ignoresSafeArea(.all)
-                .background(Color.black)
+    }
+
+    private var closeButton: some View {
+        Button(action: {
+            if confirmExit {
+                onClose()
+            } else {
+                confirmExit = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { confirmExit = false }
+            }
+        }) {
+            Text(confirmExit ? "¿SALIR?" : "✕")
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundColor(primary)
+                .padding(.horizontal, 14).padding(.vertical, 9)
+                .overlay(RoundedRectangle(cornerRadius: 4).stroke(primary.opacity(0.7), lineWidth: 1))
         }
     }
 

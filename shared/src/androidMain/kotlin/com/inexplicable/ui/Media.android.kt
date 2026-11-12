@@ -211,6 +211,39 @@ actual fun CameraCapture(frameAspect: Float, cropToFrame: Boolean, hint: String,
     }
 }
 
+// ---------- Galería ----------
+
+/** Lee la imagen elegida, la endereza según EXIF y la reduce; devuelve JPEG. Null si no se puede leer. */
+private fun readGalleryImage(ctx: Context, uri: android.net.Uri, maxSide: Int = 1280): ByteArray? = try {
+    // Primero solo las medidas, para decodificar ya a un tamaño razonable.
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    var sample = 1
+    while (max(bounds.outWidth, bounds.outHeight) / sample > maxSide * 2) sample *= 2
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    val bmp = ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
+    val rotation = ctx.contentResolver.openInputStream(uri)?.use {
+        when (android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)) {
+            android.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            android.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            android.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    } ?: 0
+    if (bmp == null) null else processPhoto(bmp, rotation, null, maxSide)
+} catch (e: Exception) {
+    null
+}
+
+@Composable
+actual fun GalleryPicker(onResult: (ByteArray?) -> Unit) {
+    val ctx = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        onResult(uri?.let { readGalleryImage(ctx, it) })
+    }
+    LaunchedEffect(Unit) { launcher.launch("image/*") }
+}
+
 // ---------- Escucha ----------
 
 private class AndroidListener(private val ctx: Context) : Listener {

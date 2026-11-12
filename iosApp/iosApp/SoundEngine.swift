@@ -5,6 +5,20 @@ import Shared
 // barrido con trémolo al analizar, «ping» al aparecer el resultado y «whoosh» al abrirlo. Si cambias uno, cambia el otro.
 // Kotlin le manda órdenes de texto a través de `IosSoundHooks.handler` (ver `SoundBridge.install()`).
 
+/// Sesión de audio compartida por los efectos de sonido y la voz. Con la categoría `.ambient` el audio queda silenciado por el interruptor de
+/// silencio del iPhone (y por el altavoz solo se oía con auriculares); `.playback` suena siempre y se mezcla con otras apps.
+/// Mientras se escucha con el micrófono la categoría es otra (`.playAndRecord`) y aquí no se toca.
+enum AppAudio {
+    static var recording = false
+
+    static func playback() {
+        if recording { return }
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+        try? session.setActive(true)
+    }
+}
+
 final class SoundSynth {
     private let engine = AVAudioEngine()
     private var node: AVAudioSourceNode?
@@ -85,9 +99,7 @@ final class SoundSynth {
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             _ = try? self?.engine.start()
         }
-        // `.ambient` se mezcla con otras apps y respeta el interruptor de silencio.
-        try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AppAudio.playback()
         let outRate = engine.outputNode.outputFormat(forBus: 0).sampleRate
         sampleRate = outRate > 0 ? outRate : 44100
         guard let format = AVAudioFormat(standardFormatWithSampleRate: sampleRate, channels: 1) else { return }
@@ -159,6 +171,7 @@ enum SpeechBridge {
     }
 
     static func speak(_ text: String, lang: String, rate: Float, pitch: Float) {
+        AppAudio.playback()
         synth.stopSpeaking(at: .immediate)
         let u = AVSpeechUtterance(string: text)
         u.voice = AVSpeechSynthesisVoice(language: lang == "en" ? "en-US" : "es-ES")
@@ -195,12 +208,13 @@ enum SoundBridge {
 
     private static func handle(_ cmd: String) {
         switch cmd {
+        // El ruido de ambiente se eliminó. El motor solo arranca cuando hace falta un sonido.
         case "ambient_on": synth.start(); synth.ambientOn = true
         case "ambient_off": synth.ambientOn = false
-        case "analyzing_on": synth.analyzeOn = true
+        case "analyzing_on": synth.start(); synth.analyzeOn = true
         case "analyzing_off": synth.analyzeOn = false
-        case "ping": synth.ping()
-        case "reveal": synth.reveal()
+        case "ping": synth.start(); synth.ping()
+        case "reveal": synth.start(); synth.reveal()
         case "pause": synth.pause()
         case "resume": synth.resume()
         case "release": synth.ambientOn = false; synth.analyzeOn = false

@@ -23,6 +23,27 @@ data class ScriptBook(
     fun line(a: ScriptAction): ScriptLine = lines.getValue(a)
 }
 
+/**
+ * Aplica la personalización del usuario sobre el guion por defecto. Todo lo que esté vacío o en blanco se queda como estaba.
+ * `replies` y `phrases` van en el orden de `ScriptAction.entries`; en `phrases` cada entrada tiene una frase por línea.
+ */
+fun ScriptBook.customized(
+    wake: String, replies: List<String>, phrases: List<String>, linked: String, finished: String,
+): ScriptBook {
+    val newLines = ScriptAction.entries.mapIndexed { i, action ->
+        val base = line(action)
+        val reply = replies.getOrNull(i)?.takeIf { it.isNotBlank() } ?: base.reply
+        val ph = phrases.getOrNull(i)?.lines()?.map { it.trim() }?.filter { it.isNotEmpty() }?.takeIf { it.isNotEmpty() } ?: base.phrases
+        action to base.copy(reply = reply, phrases = ph)
+    }.toMap()
+    return copy(
+        wake = wake.trim().ifEmpty { this.wake },
+        lines = newLines,
+        linked = linked.ifBlank { this.linked },
+        finished = finished.ifBlank { this.finished },
+    )
+}
+
 object ScriptBooks {
     fun forLanguage(lang: String): ScriptBook = when (lang) {
         "en" -> ScriptBook(

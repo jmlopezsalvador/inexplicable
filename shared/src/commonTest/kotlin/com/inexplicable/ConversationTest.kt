@@ -4,6 +4,7 @@ import com.inexplicable.effect.Stage
 import com.inexplicable.script.PhraseMatcher
 import com.inexplicable.script.ScriptAction
 import com.inexplicable.script.ScriptBooks
+import com.inexplicable.script.customized
 import com.inexplicable.script.expectedAction
 import com.inexplicable.script.hear
 import kotlin.test.Test
@@ -52,6 +53,26 @@ class ConversationTest {
         assertNull(hear(es, Stage.Analyzing, true, "analiza la baraja"))
         assertEquals(ScriptAction.Greet, hear(es, Stage.Idle, false, "hola jarvis"))
         assertEquals(ScriptAction.Link, hear(es, Stage.Idle, true, "por favor, enlaza con la baraja"))
+    }
+
+    @Test fun customizedKeepsDefaultsAndAppliesOverrides() {
+        val same = es.customized("", emptyList(), emptyList(), "", "")
+        assertEquals(es, same) // sin personalización no cambia nada
+        val book = es.customized(
+            wake = " Friday ",
+            replies = listOf("Buenas noches.", "", "", "", ""),
+            phrases = listOf("", "", "  inicia el análisis  \n\nempieza ya", "", ""),
+            linked = "Todo listo.", finished = "",
+        )
+        assertEquals("friday", book.wake.lowercase())
+        assertEquals("Buenas noches.", book.line(ScriptAction.Greet).reply)
+        assertEquals(es.line(ScriptAction.Link).reply, book.line(ScriptAction.Link).reply)
+        assertEquals(listOf("inicia el análisis", "empieza ya"), book.line(ScriptAction.Analyze).phrases)
+        assertEquals(es.line(ScriptAction.Open).phrases, book.line(ScriptAction.Open).phrases)
+        assertEquals("Todo listo.", book.linked)
+        assertEquals(es.finished, book.finished)
+        // La frase nueva dispara el paso.
+        assertEquals(ScriptAction.Analyze, hear(book, Stage.Ready, true, "Inicia el análisis"))
     }
 
     @Test fun englishBookWorks() {
