@@ -37,6 +37,29 @@ fun rememberTime(): State<Float> {
     return t
 }
 
+/**
+ * Reloj de movimiento sin saltos: `phase` acumula el tiempo multiplicado por una velocidad que se suaviza al cambiar de
+ * ritmo (p. ej. al empezar o terminar de analizar). Multiplicar el tiempo total por otra velocidad haría saltar los ángulos.
+ */
+class MotionClock {
+    private var last = 0f
+    private var k = 1f
+    var phase = 0f
+        private set
+    /** 0..1: sube suavemente mientras `appear` es true (para que los elementos entren sin «pop»). */
+    var appearK = 0f
+        private set
+
+    fun step(t: Float, fast: Boolean, appear: Boolean = false, fastK: Float = 2.2f): Float {
+        val dt = (t - last).coerceIn(0f, 0.1f)
+        last = t
+        k += ((if (fast) fastK else 1f) - k) * minOf(1f, dt * 3f)
+        phase += dt * k
+        appearK += ((if (appear) 1f else 0f) - appearK) * minOf(1f, dt * 5f)
+        return phase
+    }
+}
+
 /** Número pseudoaleatorio estable en 0..1 para un índice y una «semilla». */
 internal fun hash01(i: Int, k: Int): Float {
     val x = sin(i * 12.9898f + k * 78.233f) * 43758.5453f
@@ -56,22 +79,25 @@ fun hudRadius(w: Float, h: Float) = minOf(w, h) * 0.34f
 @Composable
 fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: State<Float>) {
     val pal = LocalPalette.current
+    val clock = remember { MotionClock() }
     Canvas(Modifier.fillMaxSize()) {
         val t = time.value
         val busy = stage == Stage.Analyzing || stage == Stage.Connecting
-        val k = if (busy) 2.2f else 1f
+        // `tk` es el tiempo «acelerado»: ya incluye el cambio de ritmo, suavizado (sin saltos de ángulo).
+        val tk = clock.step(t, busy, appear = stage == Stage.Result)
+        val k = 1f
         var c = hudCenter(size.width, size.height)
         if (level >= 3) c = Offset(c.x + sin(t * 0.35f) * size.width * 0.04f, c.y + cos(t * 0.27f) * size.height * 0.015f)
         val r = hudRadius(size.width, size.height)
         val p = pal.primary; val s = pal.secondary; val a = pal.accent
 
-        if (level >= 3) drawBigRings(c, r, t, k, p, s)
-        if (level >= 3) drawRadar(c, r, t, k, p)
+        if (level >= 3) drawBigRings(c, r, tk, k, p, s)
+        if (level >= 3) drawRadar(c, r, tk, k, p)
 
         // Anillos básicos.
-        ring(c, r, t * 26f * k, 100f, 3f, p.copy(alpha = 0.9f))
-        ring(c, r, t * 26f * k + 180f, 70f, 3f, p.copy(alpha = 0.6f))
-        ring(c, r * 0.82f, -t * 72f * k, 220f, 2f, s.copy(alpha = 0.8f))
+        ring(c, r, tk * 26f, 100f, 3f, p.copy(alpha = 0.9f))
+        ring(c, r, tk * 26f + 180f, 70f, 3f, p.copy(alpha = 0.6f))
+        ring(c, r * 0.82f, -tk * 72f, 220f, 2f, s.copy(alpha = 0.8f))
         ring(c, r * 0.64f, t * 52f, 360f, 1.5f, p.copy(alpha = 0.45f), dash = true)
         ring(c, r * 1.12f, 0f, 360f, 1f, p.copy(alpha = 0.2f))
         if (stage == Stage.Analyzing) ring(c, r * 1.2f, -90f, 360f * progress, 4f, a)
@@ -80,7 +106,7 @@ fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: Stat
             drawTicks(c, r * 1.06f, t, p)
             drawHexagon(c, r * 0.5f, t * 20f, 1.5f, s.copy(alpha = 0.7f))
             drawHexagon(c, r * 0.36f, -t * 35f, 1.2f, p.copy(alpha = 0.5f))
-            drawSatellites(c, r, t, k, level, a, p)
+            drawSatellites(c, r, tk, k, level, a, p)
         }
         if (level >= 3) {
             drawCornerBrackets(p)
@@ -97,11 +123,12 @@ fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: Stat
 
         // Resultado pendiente de abrir: sello hexagonal que late y emite ondas.
         if (stage == Stage.Result) {
+            val e = clock.appearK // entra con suavidad en vez de aparecer de golpe
             val pulse = 0.5f + 0.5f * sin(t * 4f)
-            drawHexagon(c, r * (0.26f + 0.03f * pulse), t * 45f, 3f, a, fill = a.copy(alpha = 0.12f + 0.12f * pulse))
-            drawHexagon(c, r * 0.17f, -t * 70f, 2f, a.copy(alpha = 0.8f))
+            drawHexagon(c, r * (0.26f + 0.03f * pulse) * e, t * 45f, 3f, a.copy(alpha = e), fill = a.copy(alpha = (0.12f + 0.12f * pulse) * e))
+            drawHexagon(c, r * 0.17f * e, -t * 70f, 2f, a.copy(alpha = 0.8f * e))
             val ping = (t * 0.9f) % 1f
-            drawCircle(a.copy(alpha = 0.7f * (1f - ping)), r * (0.3f + 0.9f * ping), c, style = Stroke(2f))
+            drawCircle(a.copy(alpha = 0.7f * (1f - ping) * e), r * (0.3f + 0.9f * ping), c, style = Stroke(2f))
         }
         // Apertura: onda expansiva y destello.
         if (open > 0f && open < 1f) {

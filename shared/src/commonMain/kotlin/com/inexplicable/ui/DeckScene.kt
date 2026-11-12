@@ -51,6 +51,44 @@ private const val CUBE_Y = DECK_H + 9f      // altura del «resultado» flotante
 private const val BUBBLE_Y = DECK_H + 14f   // altura de la burbuja con la revelación
 private const val TAU = (2 * PI).toFloat()
 
+private fun lerp(a: Float, b: Float, k: Float) = a + (b - a) * k
+private fun smooth01(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c * (3f - 2f * c) }
+
+/**
+ * Estado de movimiento de la escena. Todo cambia de forma continua (nada salta al cambiar de etapa):
+ * - `clock.phase`: fase de los anillos (su velocidad cambia con suavidad).
+ * - `orbitT`: fase de las partículas (idem, con su propia velocidad).
+ * - `gather` 0..1: cuánto se han reunido las partículas alrededor del cubo de resultado. Empieza a subir en el último tramo del
+ *   análisis, así que llegan a esa zona subiendo desde donde estén, y se deshace despacio al abrir el resultado.
+ * - `activity` 0..1: cuántas partículas se ven (entran y salen de una en una).
+ */
+private class SceneAnim {
+    val clock = MotionClock()
+    var orbitT = 0f
+    var gather = 0f
+    var activity = 0.33f
+    private var boost = 0.5f
+    private var last = 0f
+
+    fun step(t: Float, stage: Stage, progress: Float) {
+        val dt = (t - last).coerceIn(0f, 0.1f)
+        last = t
+        val fast = stage == Stage.Analyzing || stage == Stage.Connecting
+        clock.step(t, fast)
+        val boostTarget = when (stage) { Stage.Analyzing -> 2.5f; Stage.Result -> 1.5f; Stage.Revealed -> 0.8f; else -> 0.5f }
+        boost += (boostTarget - boost) * minOf(1f, dt * 2.5f)
+        orbitT += dt * boost
+        val gatherTarget = when (stage) {
+            Stage.Analyzing -> smooth01((progress - 0.6f) / 0.4f) // empieza a subir en el último tramo del análisis
+            Stage.Result -> 1f
+            else -> 0f
+        }
+        gather += (gatherTarget - gather) * minOf(1f, dt * if (stage == Stage.Analyzing) 6f else 2.5f)
+        val activityTarget = when (stage) { Stage.Analyzing, Stage.Result -> 1f; Stage.Revealed -> 0.6f; else -> 0.33f }
+        activity += (activityTarget - activity) * minOf(1f, dt * 1.5f)
+    }
+}
+
 /**
  * Mesa con una baraja encima y los efectos de RA dibujados con proyección propia (todo rodea o está sobre la baraja;
  * nada la atraviesa). Arrastrar gira la cámara, pellizcar acerca o aleja.
@@ -70,6 +108,7 @@ fun DeckScene(
     var pitch by remember { mutableStateOf(42f) }
     var dist by remember { mutableStateOf(30f) }
     var size by remember { mutableStateOf(IntSize(1, 1)) }
+    val anim = remember { SceneAnim() }
     val cam = OrbitCamera(yaw, pitch, dist, size.width.toFloat(), size.height.toFloat())
 
     Box(
@@ -89,7 +128,8 @@ fun DeckScene(
             drawTable(cam, pal.primary)
             drawFootprint(cam, stage, pal.primary)
             drawDeck(cam)
-            drawEffects(cam, stage, progress, open, level, t, pal)
+            anim.step(t, stage, progress)
+            drawEffects(cam, stage, progress, open, level, t, pal, anim)
         }
 
         val cubeP = cam.project(V3(0f, CUBE_Y, 0f))
@@ -209,51 +249,47 @@ private fun DrawScope.drawRing(cam: OrbitCamera, r: Float, y: Float, startDeg: F
     }
 }
 
-private fun DrawScope.drawEffects(cam: OrbitCamera, stage: Stage, progress: Float, open: Float, level: Int, t: Float, pal: Palette) {
-    val busy = stage == Stage.Analyzing || stage == Stage.Connecting
-    val k = if (busy) 2.2f else 1f
+private fun DrawScope.drawEffects(cam: OrbitCamera, stage: Stage, progress: Float, open: Float, level: Int, t: Float, pal: Palette,
+                                  anim: SceneAnim) {
+    val ph = anim.clock.phase // tiempo «acelerado» acumulado: la velocidad cambia con suavidad
     val p = pal.primary; val s = pal.secondary; val a = pal.accent
 
     // Anillos que rodean la baraja (nunca la atraviesan).
-    drawRing(cam, 9.5f, 0.2f, t * 40f * k, 100f, p.copy(alpha = 0.9f), 3f)
-    drawRing(cam, 9.5f, 0.2f, t * 40f * k + 180f, 70f, p.copy(alpha = 0.6f), 3f)
-    drawRing(cam, 7f, DECK_H + 2.5f, -t * 100f * k, 220f, s.copy(alpha = 0.8f), 2.5f)
+    drawRing(cam, 9.5f, 0.2f, ph * 40f, 100f, p.copy(alpha = 0.9f), 3f)
+    drawRing(cam, 9.5f, 0.2f, ph * 40f + 180f, 70f, p.copy(alpha = 0.6f), 3f)
+    drawRing(cam, 7f, DECK_H + 2.5f, -ph * 100f, 220f, s.copy(alpha = 0.8f), 2.5f)
     drawRing(cam, 5f, DECK_H + 5f, t * 60f, 120f, p.copy(alpha = 0.5f), 2f)
     if (level >= 2) {
         drawRing(cam, 12.5f, 0.15f, -t * 25f, 300f, s.copy(alpha = 0.35f), 1.5f)
-        drawRing(cam, 8.2f, DECK_H + 7f, t * 80f * k, 160f, a.copy(alpha = 0.5f), 1.5f)
+        drawRing(cam, 8.2f, DECK_H + 7f, ph * 80f, 160f, a.copy(alpha = 0.5f), 1.5f)
     }
     if (level >= 3) {
         drawRing(cam, 15f, 0.1f, t * 15f, 200f, p.copy(alpha = 0.25f), 1.5f)
-        drawRing(cam, 10f, DECK_H + 10f, -t * 50f * k, 90f, s.copy(alpha = 0.4f), 1.5f)
+        drawRing(cam, 10f, DECK_H + 10f, -ph * 50f, 90f, s.copy(alpha = 0.4f), 1.5f)
     }
     if (stage == Stage.Analyzing) drawRing(cam, 11.5f, 0.2f, -90f, 360f * progress, a, 4f)
 
-    // Partículas que orbitan alrededor de la baraja.
+    // Partículas que orbitan alrededor de la baraja. La posición mezcla de forma continua «órbita libre» y «reunidas junto al cubo»
+    // según `anim.gather`, y cuántas se ven según `anim.activity`: nada salta al cambiar de etapa.
     val total = when (level) { 1 -> 30; 2 -> 70; else -> 130 }
-    val visible = when (stage) {
-        Stage.Analyzing, Stage.Result -> total
-        Stage.Revealed -> (total * (0.3f + 0.7f * (1f - open))).toInt().coerceAtLeast(total / 4)
-        else -> total / 3
-    }
-    val boost = if (stage == Stage.Analyzing) 2.5f else if (stage == Stage.Result) 1.5f else 0.5f
+    val visible = (total * anim.activity).toInt().coerceIn(1, total)
+    val g = anim.gather
+    val squeeze = if (stage == Stage.Analyzing) 1f - 0.45f * sin(PI.toFloat() * progress) else 1f
     for (i in 0 until visible) {
         val r0 = 6f + 8f * hash01(i, 1)
         val y0 = 0.6f + 11f * hash01(i, 2)
         val sp = (0.4f + 0.9f * hash01(i, 3)) * (if (i % 2 == 0) 1f else -1f)
-        val ph = TAU * hash01(i, 4)
+        val phase = TAU * hash01(i, 4)
         val col = when (i % 3) { 0 -> p; 1 -> s; else -> a }
         for (tr in 0..3) {
-            val ang = t * sp * boost + ph - tr * 0.07f * (if (sp > 0) 1 else -1)
-            var px: Float; var py: Float; var pz: Float
-            if (stage == Stage.Result) {
-                // Se reúnen alrededor del cubo flotante.
-                val rr = 2.6f + 3.4f * hash01(i, 5)
-                px = rr * cos(ang); pz = rr * sin(ang); py = CUBE_Y + 2.2f * sin(ang * 1.7f + ph) * hash01(i, 6)
-            } else {
-                val squeeze = if (stage == Stage.Analyzing) 1f - 0.45f * sin(PI.toFloat() * progress) else 1f
-                px = r0 * squeeze * cos(ang); pz = r0 * squeeze * sin(ang); py = (y0 + 0.6f * sin(t + ph)) * (if (stage == Stage.Analyzing) squeeze else 1f)
-            }
+            val ang = anim.orbitT * sp + phase - tr * 0.07f * (if (sp > 0) 1 else -1) // mismo ángulo en ambas posiciones
+            val rFree = r0 * squeeze
+            val yFree = (y0 + 0.6f * sin(t + phase)) * squeeze
+            val rGather = 2.6f + 3.4f * hash01(i, 5)
+            val yGather = CUBE_Y + 2.2f * sin(ang * 1.7f + phase) * hash01(i, 6)
+            val rr = lerp(rFree, rGather, g)
+            val px = rr * cos(ang); val pz = rr * sin(ang)
+            var py = lerp(yFree, yGather, g)
             if (py < DECK_H + 0.3f && abs(px) < DECK_W / 2 + 0.5f && abs(pz) < DECK_D / 2 + 0.5f) py = DECK_H + 0.3f // nunca dentro de la baraja
             val pr = cam.project(V3(px, py, pz)) ?: continue
             val rad = (0.11f * cam.focal / pr.depth * (1f - tr * 0.18f)).coerceIn(1f, 6f)
@@ -261,11 +297,12 @@ private fun DrawScope.drawEffects(cam: OrbitCamera, stage: Stage, progress: Floa
         }
     }
 
-    // Resultado flotante: cubo de alambre con haz de luz hasta la baraja.
-    if (stage == Stage.Result || (stage == Stage.Revealed && open < 1f)) {
-        val grow = if (stage == Stage.Revealed) 1f + 1.6f * open else 1f
-        val fade = if (stage == Stage.Revealed) (1f - open) else 1f
-        val bob = if (stage == Stage.Result) 0.5f * sin(t * 2.2f) else 0f
+    // Resultado flotante: cubo de alambre con haz de luz hasta la baraja. Se materializa mientras las partículas suben (`gather`).
+    val cubeAlpha = if (stage == Stage.Revealed) (1f - open) else g
+    if (cubeAlpha > 0.01f) {
+        val grow = if (stage == Stage.Revealed) 1f + 1.6f * open else 0.5f + 0.5f * g
+        val fade = cubeAlpha
+        val bob = 0.5f * sin(t * 2.2f)
         val c = V3(0f, CUBE_Y + bob, 0f)
         val half = 2.1f * grow
         val ang = t * 0.9f

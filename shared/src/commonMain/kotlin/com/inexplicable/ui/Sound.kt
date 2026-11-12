@@ -66,7 +66,7 @@ class Synth(private val sampleRate: Int) {
                 humPhase += twoPi * 55f * dt
                 if (humPhase > twoPi) humPhase -= twoPi
                 val lfo = 0.75f + 0.25f * sin(twoPi * 0.125f * tf)
-                s += ambGain * lfo * (noiseLp * 0.55f + sin(humPhase) * 0.05f)
+                s += ambGain * lfo * (noiseLp * 2.2f + sin(humPhase) * 0.09f)
             }
             if (anaGain > 0f) {
                 val cycle = (tf / 1.6f) % 1f
@@ -74,11 +74,11 @@ class Synth(private val sampleRate: Int) {
                 anaPhase += twoPi * f * dt
                 if (anaPhase > 2 * twoPi) anaPhase -= 2 * twoPi // 4π: así también es continuo el armónico ×1,5
                 val trem = 0.7f + 0.3f * sin(twoPi * 6f * tf)
-                s += anaGain * trem * (sin(anaPhase) * 0.10f + sin(anaPhase * 1.5f) * 0.04f + noise() * 0.015f)
+                s += anaGain * trem * (sin(anaPhase) * 0.22f + sin(anaPhase * 1.5f) * 0.09f + noise() * 0.03f)
             }
             if (pingT >= 0f) {
                 val e = exp(-pingT * 9f)
-                s += e * (sin(twoPi * 1320f * pingT) * 0.30f + sin(twoPi * 1980f * pingT) * 0.10f)
+                s += e * (sin(twoPi * 1320f * pingT) * 0.50f + sin(twoPi * 1980f * pingT) * 0.20f)
                 pingT += dt
                 if (pingT > 0.7f) pingT = -1f
             }
@@ -86,7 +86,7 @@ class Synth(private val sampleRate: Int) {
                 val k = revT / 0.9f
                 val bell = sin((PI * k).toFloat()).let { it * it }
                 revLp += (0.02f + 0.5f * k) * (noise() - revLp)
-                s += bell * revLp * 0.6f + exp(-revT * 6f) * sin(twoPi * 110f * revT) * 0.35f
+                s += bell * revLp * 1.4f + exp(-revT * 6f) * sin(twoPi * 110f * revT) * 0.5f
                 revT += dt
                 if (revT > 0.9f) revT = -1f
             }

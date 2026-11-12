@@ -51,7 +51,7 @@ final class SoundSynth {
             humPhase += twoPi * 55 * dt
             if humPhase > twoPi { humPhase -= twoPi }
             let lfo = 0.75 + 0.25 * sin(twoPi * 0.125 * tf)
-            s += ambGain * lfo * (noiseLp * 0.55 + sin(humPhase) * 0.05)
+            s += ambGain * lfo * (noiseLp * 2.2 + sin(humPhase) * 0.09)
         }
         if anaGain > 0 {
             let cycle = (tf / 1.6).truncatingRemainder(dividingBy: 1)
@@ -59,11 +59,11 @@ final class SoundSynth {
             anaPhase += twoPi * f * dt
             if anaPhase > 2 * twoPi { anaPhase -= 2 * twoPi }
             let trem = 0.7 + 0.3 * sin(twoPi * 6 * tf)
-            s += anaGain * trem * (sin(anaPhase) * 0.10 + sin(anaPhase * 1.5) * 0.04 + noise() * 0.015)
+            s += anaGain * trem * (sin(anaPhase) * 0.22 + sin(anaPhase * 1.5) * 0.09 + noise() * 0.03)
         }
         if pingT >= 0 {
             let e = exp(-pingT * 9)
-            s += e * (sin(twoPi * 1320 * pingT) * 0.30 + sin(twoPi * 1980 * pingT) * 0.10)
+            s += e * (sin(twoPi * 1320 * pingT) * 0.50 + sin(twoPi * 1980 * pingT) * 0.20)
             pingT += dt
             if pingT > 0.7 { pingT = -1 }
         }
@@ -71,7 +71,7 @@ final class SoundSynth {
             let k = revT / 0.9
             let bell = sin(Float.pi * k) * sin(Float.pi * k)
             revLp += (0.02 + 0.5 * k) * (noise() - revLp)
-            s += bell * revLp * 0.6 + exp(-revT * 6) * sin(twoPi * 110 * revT) * 0.35
+            s += bell * revLp * 1.4 + exp(-revT * 6) * sin(twoPi * 110 * revT) * 0.5
             revT += dt
             if revT > 0.9 { revT = -1 }
         }
