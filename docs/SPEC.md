@@ -97,7 +97,7 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 2. **Fase 1 — Modo Lector (hecha en lo básico, 2026-11-11: HUD Jarvis, máquina de fases con tests, textos es/en; faltan textos editables):** pantalla inicial, escáner animado, máquina de estados de fases, textos de predicciones, textos multiidioma, tests de la lógica.
 3. **Fase 2 — Configuración secreta (hecha, 2026-11-11: pulsación larga arriba a la derecha, números, carta, tiempos, fases editables/añadir/quitar/reordenar, persistencia local, reset oculto; falta dorsos/voz/estilo RA):** pulsación larga, panel, persistencia, reset oculto, tiempos.
 4. **Fase 3 — Voz (TTS):** `expect`/`actual` para Android/iOS, ajustes de voz.
-5. **Fase 4 — RA-0:** prueba de concepto. **Decidido: empezar en iPhone (ARKit)**, volver a Android si se atasca. Prototipo en `iosApp/iosApp/ARPrototype.swift`: Vision detecta un rectángulo con proporción de baraja (agnóstico al dorso), se ancla con raycast y ARKit mantiene el ancla; HUD con estado de seguimiento. Entrada oculta: pulsación larga 1,5 s en el centro superior. Pendiente de compilar y probar en el iPhone (aún sin verificar).
+5. **Fase 4 — RA-0:** prueba de concepto. **Decidido: empezar en iPhone (ARKit)**, volver a Android si se atasca. Prototipo en `iosApp/iosApp/ARPrototype.swift`: Vision detecta un rectángulo con proporción de baraja (agnóstico al dorso), se ancla con raycast y ARKit mantiene el ancla; HUD con estado de seguimiento. Ahora se entra con EMPEZAR en modo RA (ver §11). Probada en iPhone (detección y ancla correctas; ver `CLAUDE.md`).
 6. **Fase 5 — RA completa:** animaciones 3D, bocadillo, dorsos configurables, iOS.
 7. **Fase 6 — Pulido:** icono, ajustes, instrucciones, `.ipa` en Actions (siempre preguntando antes de lanzarlo).
 
@@ -106,5 +106,38 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 2. Mecanismo definitivo de dorsos: ¿detección del mazo como objeto (agnóstica) o lista de dorsos? Se decide tras RA-0.
 3. ~~Esquina de la configuración~~: superior derecha (decidido).
 4. ~~Idiomas iniciales~~: castellano e inglés (decidido).
-5. ¿Modo Lector y RA se eligen en la configuración o hay botón visible?
+5. ~~¿Modo Lector y RA se eligen en la configuración o hay botón visible?~~ En la configuración; se aplica al empezar un juego nuevo (decidido).
 6. Pruebas de RA: ¿se dispone de un móvil Android físico? (ver emulador y webcam en la conversación).
+
+## 11. Presentación y modos (estado a 2026-11-12)
+- **Menú principal** (anillos + EMPEZAR). EMPEZAR inicia un juego nuevo; el reset oculto (arriba a la izquierda) vuelve al menú.
+- **Modos** (elegidos en la configuración, se aplican al empezar): **HUD plano**, **Baraja 3D** (mesa virtual, campo de pruebas de las animaciones; también modo propio)
+  y **RA** (nativa, solo iOS por ahora). Las animaciones del modo 3D son las mismas de la RA.
+- **Flujo por fase:** Analizar → animación (partículas y anillos que rodean la baraja, sin atravesarla) → aparece un **resultado pulsable**
+  (cubo luminoso / sello) → al tocarlo se abre → predicción en un cartel que **se ajusta a la pantalla** (en RA: tamaño máximo coherente
+  al acercarse, pequeño al alejarse) → Continuar.
+- **Configuración por secciones:** Juego y presentación, Efecto y fases, Tiempos, Colores (3 colores con selector), Sonido, Detección RA (iOS).
+  Todo es configurable ahora y se podrá recortar al final.
+- **Complejidad visual** 1-3 (HUD y densidad de efectos). **Sonido** sintetizado (sin ficheros): ruido de ambiente, barrido al analizar, ping y whoosh.
+- **Pendiente:** foto del dorso de la baraja 3D (§12.1), voz TTS (§7.3), selector de dorsos.
+
+## 12. Líneas de análisis (features propuestas, sin comprometer)
+### 12.1 Modo «Foto» (cuarto modo) — viable
+El HUD pide **una foto de la baraja sobre la mesa** (desde arriba o en 3/4); se detecta la baraja en la foto y los efectos se dibujan sobre ella
+como si fuera la escena; después sigue el flujo normal por fases.
+- Foto con un **marco guía** («coloca la baraja aquí») en vez de detección libre: reduce mucho el problema.
+- Detección: en iOS, Vision sobre la foto fija (más fiable que en vivo); en Android, no hay equivalente incluido: lo robusto y multiplataforma es
+  proponer un cuadrilátero y dejar **ajustar las 4 esquinas** a mano (opcional: detección automática con OpenCV más adelante).
+- Con las 4 esquinas y las medidas reales (63×88 mm) se calcula la **homografía/pose** y se dibujan las mismas animaciones 3D encima de la foto
+  (reutiliza `DeckScene`). Es una imagen congelada: sin seguimiento, sin ARCore; funciona en cualquier Android y evita el problema de la RA en Android.
+- Misma infraestructura de cámara que la **foto del dorso** de la baraja 3D (§7.4): conviene construirlas juntas.
+### 12.2 Conversación con voz («Jarvis») — viable como guion con frases-disparador, no como LLM
+Idea: diálogo guionizado por el mago; algunas frases del mago **disparan acciones** (enlazar, analizar, continuar, abrir) en lugar de pulsar la pantalla.
+- Piezas: voz de salida (TTS nativo, ya previsto), **reconocimiento de voz** (Android `SpeechRecognizer`, iOS `SFSpeechRecognizer`),
+  **comparador de frases** (normaliza acentos/mayúsculas, tolera variaciones) y un **guion** (turnos: lo que dice la app, qué frases espera, qué acción dispara).
+- Para que no salte con los comentarios del público: exigir una **palabra de activación + orden** («Jarvis, analiza la baraja»), umbral de coincidencia
+  alto y que solo se acepten las frases esperadas en el turno actual. Mientras la app habla, se silencia el micro (si no, se oye a sí misma).
+- Riesgos: ruido/música/aplausos, latencia (≈0,5-1,5 s), el reconocedor se corta tras silencios y hay que reiniciarlo, el micro abierto muestra el
+  **indicador de grabación** del sistema (lo ve el público), permisos de micrófono/voz, en Android antiguo puede requerir red. Siempre habrá un **respaldo manual**.
+- Alternativa discreta sin voz: botones de volumen, pedal/mando Bluetooth o auriculares como disparador.
+- Orden sugerido: TTS → motor de guion con avance manual → reconocimiento de voz → editor de guion en la configuración.

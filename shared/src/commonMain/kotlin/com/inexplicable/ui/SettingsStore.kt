@@ -49,6 +49,8 @@ data class AppSettings(
     val colorPrimary: Long = DEFAULT_PRIMARY,     // paleta (ARGB); la lee también el código nativo de iOS
     val colorSecondary: Long = DEFAULT_SECONDARY,
     val colorAccent: Long = DEFAULT_ACCENT,
+    val soundOn: Boolean = true,      // efectos de sonido (ambiente, análisis, resultado y apertura)
+    val soundVolume: Int = 60,        // 0..100
 ) {
     fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
 
@@ -84,6 +86,8 @@ class SettingsStore(private val prefs: KeyValueStore) {
             colorPrimary = prefs.getLong("colorPrimary", d.colorPrimary),
             colorSecondary = prefs.getLong("colorSecondary", d.colorSecondary),
             colorAccent = prefs.getLong("colorAccent", d.colorAccent),
+            soundOn = prefs.getBoolean("soundOn", d.soundOn),
+            soundVolume = prefs.getLong("soundVolume", d.soundVolume.toLong()).toInt().coerceIn(0, 100),
         )
     }
 
@@ -109,6 +113,22 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putLong("colorPrimary", s.colorPrimary)
         prefs.putLong("colorSecondary", s.colorSecondary)
         prefs.putLong("colorAccent", s.colorAccent)
+        prefs.putBoolean("soundOn", s.soundOn)
+        prefs.putLong("soundVolume", s.soundVolume.toLong())
+    }
+
+    /**
+     * Publica las fases y textos ya resueltos (idioma, números, personalización) para la RA nativa de iOS, que los lee de
+     * UserDefaults con estas claves: `arPhases` (separadas por U+001F), `arAnalyze`, `arNext`, `arTapReveal`, `arAnalyzing`, `arFinished`.
+     */
+    fun publishForAR(phases: List<String>, texts: UiTexts) {
+        prefs.putString("arPhases", phases.joinToString(SEP.toString()))
+        prefs.putString("arAnalyze", texts.analyzeButton)
+        prefs.putString("arNext", texts.nextButton)
+        prefs.putString("arTapReveal", texts.tapToReveal)
+        prefs.putString("arAnalyzing", texts.analyzing)
+        prefs.putString("arFinished", texts.finished)
+        prefs.putString("arReady", texts.ready)
     }
 
     private companion object { const val SEP = '\u001F' }

@@ -9,5 +9,9 @@ import androidx.compose.runtime.Composable
 @Composable
 expect fun SystemBarsEffect()
 
+/** Avisa cuando la app pasa a segundo plano (`onPause`) o vuelve (`onResume`). iOS: sin comportamiento. */
+@Composable
+expect fun LifecycleEffect(onPause: () -> Unit, onResume: () -> Unit)
+
 /** Código de idioma del dispositivo en minúsculas (`"es"`, `"en"`...). */
 expect fun deviceLanguage(): String

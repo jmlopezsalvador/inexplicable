@@ -73,6 +73,9 @@ fun ConfigScreen(
     var cPrimary by remember { mutableStateOf(initial.colorPrimary) }
     var cSecondary by remember { mutableStateOf(initial.colorSecondary) }
     var cAccent by remember { mutableStateOf(initial.colorAccent) }
+    // Sonido
+    var soundOn by remember { mutableStateOf(initial.soundOn) }
+    var soundVolume by remember { mutableStateOf(initial.soundVolume / 100f) }
     // Detección RA
     var detTries by remember { mutableStateOf(initial.detTries.toString()) }
     var detTol by remember { mutableStateOf(initial.detTolerancePct.toString()) }
@@ -161,6 +164,12 @@ fun ConfigScreen(
                 }
             }
 
+            Section(t("Sonido", "Sound"), false) {
+                SwitchRow(soundOn, t("Efectos de sonido", "Sound effects")) { soundOn = it }
+                Label(t("Volumen", "Volume") + ": " + (soundVolume * 100).toInt() + "%")
+                Slider(soundVolume, { soundVolume = it })
+            }
+
             if (arAvailable) Section(t("Detección RA (pruebas)", "AR detection (testing)"), false) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(detTries, { detTries = it }, Modifier.weight(1f),
@@ -207,6 +216,7 @@ fun ConfigScreen(
                     connectPauseMs = pauseMs.toLongOrNull()?.coerceIn(0, 5000) ?: d.connectPauseMs,
                     mode = mode, hudLevel = level,
                     colorPrimary = cPrimary, colorSecondary = cSecondary, colorAccent = cAccent,
+                    soundOn = soundOn, soundVolume = (soundVolume * 100).toInt().coerceIn(0, 100),
                     detTries = detTries.toIntOrNull()?.coerceIn(1, 20) ?: d.detTries,
                     detTolerancePct = detTol.toIntOrNull()?.coerceIn(0, 80) ?: d.detTolerancePct,
                     detIntervalMs = detInterval.toIntOrNull()?.coerceIn(100, 2000) ?: d.detIntervalMs,

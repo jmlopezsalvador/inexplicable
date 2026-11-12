@@ -22,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -104,6 +105,21 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     var connectLine by remember { mutableStateOf("") }
     val time = rememberTime()
 
+    // Sonido: ambiente siempre (menú incluido); análisis, resultado y apertura siguen las etapas.
+    val sound = remember { createSoundEngine() }
+    DisposableEffect(Unit) { onDispose { sound.release() } }
+    LifecycleEffect(onPause = { sound.pause() }, onResume = { sound.resume() })
+    LaunchedEffect(settings.soundOn, settings.soundVolume) {
+        sound.volume(settings.soundVolume / 100f)
+        sound.ambient(settings.soundOn)
+    }
+    LaunchedEffect(state.stage, started, settings.soundOn) {
+        val on = settings.soundOn && started
+        sound.analyzing(on && state.stage == Stage.Analyzing)
+        if (on && state.stage == Stage.Result) sound.ping()
+        if (on && state.stage == Stage.Revealed) sound.reveal()
+    }
+
     fun sync() { state = engine.state }
     fun openResult() { engine.revealed(); sync() }
 
@@ -172,6 +188,8 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                         val fresh = store.load()
                         settings = fresh
                         if (fresh.mode == MODE_AR && onStartAR != null) {
+                            val ft = Texts.forLanguage(lang, fresh.params())
+                            store.publishForAR(fresh.effectivePhases(ft).map { it.text }, ft)
                             onStartAR()
                         } else {
                             engine.reset(); resetCount++; connectLine = ""; sync()

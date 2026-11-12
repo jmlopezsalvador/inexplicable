@@ -12,6 +12,31 @@ import platform.Foundation.preferredLanguages
 @Composable
 actual fun SystemBarsEffect() {}
 
+@Composable
+actual fun LifecycleEffect(onPause: () -> Unit, onResume: () -> Unit) {}
+
+/**
+ * Puente con el sintetizador de sonido de Swift (`SoundEngine.swift`): Swift asigna `handler` al arrancar y Kotlin le manda
+ * órdenes de texto («ambient_on», «analyzing_off», «ping», «reveal», «pause», «resume», «volume:0.6», «release»).
+ */
+object IosSoundHooks {
+    var handler: ((String) -> Unit)? = null
+}
+
+private class IosSoundEngine : SoundEngine {
+    private fun send(cmd: String) { IosSoundHooks.handler?.invoke(cmd) }
+    override fun volume(v: Float) = send("volume:" + v.coerceIn(0f, 1f))
+    override fun ambient(on: Boolean) = send(if (on) "ambient_on" else "ambient_off")
+    override fun analyzing(on: Boolean) = send(if (on) "analyzing_on" else "analyzing_off")
+    override fun ping() = send("ping")
+    override fun reveal() = send("reveal")
+    override fun pause() = send("pause")
+    override fun resume() = send("resume")
+    override fun release() = send("release")
+}
+
+actual fun createSoundEngine(): SoundEngine = IosSoundEngine()
+
 actual fun deviceLanguage(): String =
     (NSLocale.preferredLanguages.firstOrNull() as? String)?.substringBefore('-')?.lowercase() ?: "es"
 
