@@ -56,6 +56,7 @@ fun ConfigScreen(
     // Juego
     var mode by remember { mutableStateOf(initial.mode) }
     var level by remember { mutableStateOf(initial.hudLevel) }
+    var control by remember { mutableStateOf(initial.control) }
     // Efecto
     var faceDown by remember { mutableStateOf(initial.faceDown.toString()) }
     var red by remember { mutableStateOf(initial.red.toString()) }
@@ -108,6 +109,9 @@ fun ConfigScreen(
                 ModeOption(mode == MODE_READER, t("HUD plano (lector)", "Flat HUD (reader)")) { mode = MODE_READER }
                 ModeOption(mode == MODE_DECK3D, t("Baraja 3D (mesa virtual)", "3D deck (virtual table)")) { mode = MODE_DECK3D }
                 if (arAvailable) ModeOption(mode == MODE_AR, t("Realidad aumentada", "Augmented reality")) { mode = MODE_AR }
+                Label(t("Control del avance (se aplica al empezar un juego nuevo)", "How the effect advances (applies when a new game starts)"))
+                ModeOption(control == CONTROL_BUTTONS, t("Botones de la pantalla", "On-screen buttons")) { control = CONTROL_BUTTONS }
+                ModeOption(control == CONTROL_SCRIPT, t("Conversación guionizada (Jarvis habla)", "Scripted conversation (Jarvis talks)")) { control = CONTROL_SCRIPT }
                 Label(t("Complejidad visual (HUD y efectos)", "Visual complexity (HUD and effects)"))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     for (l in 1..3) {
@@ -235,7 +239,7 @@ fun ConfigScreen(
                     analyzeMs = secs(analyzeSec, d.analyzeMs).coerceIn(500, 60000),
                     openMs = secs(openSec, d.openMs).coerceIn(300, 10000),
                     connectPauseMs = pauseMs.toLongOrNull()?.coerceIn(0, 5000) ?: d.connectPauseMs,
-                    mode = mode, hudLevel = level,
+                    mode = mode, hudLevel = level, control = control,
                     colorPrimary = cPrimary, colorSecondary = cSecondary, colorAccent = cAccent,
                     soundOn = soundOn, soundVolume = (soundVolume * 100).toInt().coerceIn(0, 100),
                     voiceOn = voiceOn, voiceStatus = voiceStatus, voiceReveal = voiceReveal,

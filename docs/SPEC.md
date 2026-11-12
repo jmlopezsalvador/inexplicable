@@ -143,3 +143,9 @@ Idea: diálogo guionizado por el mago; algunas frases del mago **disparan accion
   **indicador de grabación** del sistema (lo ve el público), permisos de micrófono/voz, en Android antiguo puede requerir red. Siempre habrá un **respaldo manual**.
 - Alternativa discreta sin voz: botones de volumen, pedal/mando Bluetooth o auriculares como disparador.
 - Orden sugerido: TTS → motor de guion con avance manual → reconocimiento de voz → editor de guion en la configuración.
+- **Estado (2026-11-12):** TTS hecho. **Motor de guion hecho** (`script/Conversation.kt`): opción «Control del avance → Conversación guionizada».
+  El efecto arranca en `Idle`; los pasos son Saludar → Enlazar → (por fase) Analizar → Abrir → Continuar. El paso esperado sale de la etapa del efecto
+  (`expectedAction`), así que solo se acepta la orden que toca. Cada paso tiene un botón de respaldo (su etiqueta), frases-disparador, y una respuesta que
+  Jarvis dice con la voz y muestra como subtítulo. `hear(...)` + `PhraseMatcher` (sin acentos/signos, tolera una letra de error, opcional palabra «Jarvis»)
+  ya están listos y probados para enchufar el reconocimiento de voz. Los guiones por defecto (es/en) están en código; falta el editor.
+  El control por conversación aún no existe en la RA nativa de iOS (solo HUD plano y Baraja 3D).

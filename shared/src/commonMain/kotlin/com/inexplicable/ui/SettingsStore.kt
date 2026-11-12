@@ -8,6 +8,9 @@ const val MODE_READER = "reader"
 const val MODE_AR = "ar"
 const val MODE_DECK3D = "deck3d"
 
+const val CONTROL_BUTTONS = "buttons"   // el mago pulsa los botones de la pantalla
+const val CONTROL_SCRIPT = "script"     // conversación guionizada: la app habla y el mago dispara cada paso (botón o, luego, voz)
+
 val DEFAULT_PRIMARY = 0xFF3DDCFFL
 val DEFAULT_SECONDARY = 0xFF3D7BFFL
 val DEFAULT_ACCENT = 0xFFFFC857L
@@ -56,6 +59,7 @@ data class AppSettings(
     val voiceReveal: Boolean = true,  // lee la predicción al abrir el resultado
     val voiceRate: Int = 100,         // velocidad en % (50..200)
     val voicePitch: Int = 100,        // tono en % (50..200)
+    val control: String = CONTROL_BUTTONS, // cómo avanza el efecto (se aplica al empezar un juego nuevo)
 ) {
     fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
 
@@ -98,6 +102,7 @@ class SettingsStore(private val prefs: KeyValueStore) {
             voiceReveal = prefs.getBoolean("voiceReveal", d.voiceReveal),
             voiceRate = prefs.getLong("voiceRate", d.voiceRate.toLong()).toInt().coerceIn(50, 200),
             voicePitch = prefs.getLong("voicePitch", d.voicePitch.toLong()).toInt().coerceIn(50, 200),
+            control = prefs.getString("control")?.takeIf { it == CONTROL_BUTTONS || it == CONTROL_SCRIPT } ?: d.control,
         )
     }
 
@@ -130,6 +135,7 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putBoolean("voiceReveal", s.voiceReveal)
         prefs.putLong("voiceRate", s.voiceRate.toLong())
         prefs.putLong("voicePitch", s.voicePitch.toLong())
+        prefs.putString("control", s.control)
     }
 
     /**

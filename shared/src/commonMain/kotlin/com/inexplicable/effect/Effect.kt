@@ -5,6 +5,9 @@ data class Phase(val text: String)
 
 /** Etapas del lector. */
 enum class Stage {
+    /** Antes de enlazar (solo en el control por conversación): se espera la orden de enlazar. */
+    Idle,
+
     /** Efecto de «conexión» con la baraja. */
     Connecting,
 
@@ -30,11 +33,18 @@ data class EffectState(val stage: Stage = Stage.Connecting, val phase: Int = 0)
  * Máquina de estados pura (sin UI ni tiempo): la interfaz lanza los eventos cuando acaban sus animaciones.
  * Connecting → Ready → Analyzing → Result → Revealed → (Ready de la siguiente fase | Finished).
  */
-class EffectEngine(val phases: List<Phase>) {
-    var state: EffectState = EffectState()
+class EffectEngine(val phases: List<Phase>, private val startIdle: Boolean = false) {
+    private fun initial() = EffectState(if (startIdle) Stage.Idle else Stage.Connecting)
+
+    var state: EffectState = initial()
         private set
 
     val current: Phase? get() = phases.getOrNull(state.phase)
+
+    /** Empieza a enlazar (solo desde `Idle`). */
+    fun link() {
+        if (state.stage == Stage.Idle) state = state.copy(stage = Stage.Connecting)
+    }
 
     /** Acaba el efecto de conexión. */
     fun connected() {
@@ -65,7 +75,7 @@ class EffectEngine(val phases: List<Phase>) {
 
     /** Reset oculto: deja el efecto preparado de nuevo. */
     fun reset() {
-        state = EffectState()
+        state = initial()
     }
 }
 

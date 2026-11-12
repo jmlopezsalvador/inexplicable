@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.sp
 import com.inexplicable.effect.EffectEngine
 import com.inexplicable.effect.Stage
 import com.inexplicable.effect.Texts
+import com.inexplicable.script.ScriptAction
+import com.inexplicable.script.ScriptBooks
+import com.inexplicable.script.expectedAction
 import kotlinx.coroutines.delay
 
 private val HudBg = Color(0xFF00050E)
@@ -102,13 +105,18 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     val sim3d = started && playMode == MODE_DECK3D
     val texts = remember(settings) { Texts.forLanguage(lang, settings.params()) }
     val phases = remember(settings) { settings.effectivePhases(texts) }
-    val engine = remember(phases) { EffectEngine(phases) }
+    // Control por conversación: el efecto espera órdenes (saludar, enlazar, analizar…) y la app responde con su guion.
+    val scriptMode = settings.control == CONTROL_SCRIPT
+    val book = remember(lang) { ScriptBooks.forLanguage(lang) }
+    val engine = remember(phases, scriptMode) { EffectEngine(phases, startIdle = scriptMode) }
     var state by remember(engine) { mutableStateOf(engine.state) }
     var resetCount by remember { mutableStateOf(0) }
     var showConfig by remember { mutableStateOf(false) }
     val progress = remember { Animatable(0f) }
     val open = remember { Animatable(0f) }
     var connectLine by remember { mutableStateOf("") }
+    var greeted by remember { mutableStateOf(false) }
+    var subtitle by remember { mutableStateOf("") }
     val time = rememberTime()
 
     // Sonido: ambiente siempre (menú incluido); análisis, resultado y apertura siguen las etapas.
@@ -133,22 +141,46 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         val rate = settings.voiceRate / 100f
         val pitch = settings.voicePitch / 100f
         when (state.stage) {
-            Stage.Ready -> if (settings.voiceStatus && state.phase == 0) speaker.speak(texts.ready, lang, rate, pitch)
-            Stage.Analyzing -> if (settings.voiceStatus) speaker.speak(texts.analyzing, lang, rate, pitch)
+            Stage.Ready -> if (settings.voiceStatus && state.phase == 0) speaker.speak(if (scriptMode) book.linked else texts.ready, lang, rate, pitch)
+            // En el guion, «analizando» lo dice la respuesta del propio paso.
+            Stage.Analyzing -> if (settings.voiceStatus && !scriptMode) speaker.speak(texts.analyzing, lang, rate, pitch)
             Stage.Revealed -> if (settings.voiceReveal) {
                 delay((settings.openMs * 0.45).toLong())
                 phases.getOrNull(state.phase)?.let { speaker.speak(it.text, lang, rate, pitch) }
             }
-            Stage.Finished -> if (settings.voiceStatus) speaker.speak(texts.finished, lang, rate, pitch)
+            Stage.Finished -> if (settings.voiceStatus) speaker.speak(if (scriptMode) book.finished else texts.finished, lang, rate, pitch)
+            else -> {}
+        }
+    }
+    // Subtítulo de lo que «dice» Jarvis cuando es la propia etapa quien habla (enlazado y final).
+    LaunchedEffect(state.stage, state.phase, scriptMode) {
+        if (scriptMode) when (state.stage) {
+            Stage.Ready -> if (state.phase == 0) subtitle = book.linked
+            Stage.Finished -> subtitle = book.finished
             else -> {}
         }
     }
 
     fun sync() { state = engine.state }
-    fun openResult() { engine.revealed(); sync() }
+
+    /** Ejecuta un paso del guion: lo llaman el botón de respaldo y, más adelante, el reconocimiento de voz. */
+    fun perform(action: ScriptAction) {
+        val line = book.line(action)
+        when (action) {
+            ScriptAction.Greet -> greeted = true
+            ScriptAction.Link -> { connectLine = ""; engine.link() }
+            ScriptAction.Analyze -> engine.analyze()
+            ScriptAction.Open -> engine.revealed()
+            ScriptAction.Continue -> engine.next()
+        }
+        sync()
+        subtitle = line.reply
+        if (settings.voiceOn && line.reply.isNotBlank()) speaker.speak(line.reply, lang, settings.voiceRate / 100f, settings.voicePitch / 100f)
+    }
+    fun openResult() { if (scriptMode) perform(ScriptAction.Open) else { engine.revealed(); sync() } }
 
     // Efecto de conexión con la baraja.
-    LaunchedEffect(engine, resetCount, started) {
+    LaunchedEffect(engine, resetCount, started, state.stage) {
         if (!started || engine.state.stage != Stage.Connecting) return@LaunchedEffect
         for (line in texts.connecting) {
             for (i in 1..line.length) { connectLine = line.take(i); delay(28) }
@@ -216,7 +248,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                             store.publishForAR(fresh.effectivePhases(ft).map { it.text }, ft)
                             onStartAR()
                         } else {
-                            engine.reset(); resetCount++; connectLine = ""; sync()
+                            engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; sync()
                             // Sin RA nativa (Android) el modo RA cae al HUD plano.
                             playMode = if (fresh.mode == MODE_AR) MODE_READER else fresh.mode
                             started = true
@@ -230,6 +262,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 Text(texts.title, color = pal.primary, fontSize = 18.sp, letterSpacing = 8.sp, fontWeight = FontWeight.Light)
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                     val message = when (state.stage) {
+                        Stage.Idle -> ""
                         Stage.Connecting -> connectLine
                         Stage.Ready -> texts.ready
                         Stage.Analyzing -> texts.analyzing + " " + (progress.value * 100).toInt() + "%"
@@ -240,26 +273,47 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     val pulse by rememberInfiniteTransition().animateFloat(
                         0.4f, 1f, infiniteRepeatable(tween(700), RepeatMode.Reverse),
                     )
-                    Text(
-                        message,
-                        color = if (state.stage == Stage.Result) pal.accent else Color.White,
-                        fontSize = if (state.stage == Stage.Revealed) 26.sp else 16.sp,
-                        fontFamily = FontFamily.Monospace,
-                        lineHeight = if (state.stage == Stage.Revealed) 36.sp else 22.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 32.dp).alpha(if (state.stage == Stage.Result) pulse else 1f),
-                    )
-                }
-                val label = if (state.stage == Stage.Revealed) texts.nextButton else texts.analyzeButton
-                val active = state.stage == Stage.Ready || (state.stage == Stage.Revealed && open.value > 0.9f)
-                if (state.stage != Stage.Finished) {
-                    HudButton(label, active) {
-                        when (state.stage) {
-                            Stage.Ready -> engine.analyze()
-                            Stage.Revealed -> engine.next()
-                            else -> {}
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Subtítulo: lo que «dice» Jarvis en el guion.
+                        if (scriptMode && subtitle.isNotBlank() && state.stage != Stage.Revealed) {
+                            Text(
+                                "“$subtitle”", color = pal.primary, fontSize = 15.sp, fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 14.dp),
+                            )
                         }
-                        sync()
+                        Text(
+                            message,
+                            color = if (state.stage == Stage.Result) pal.accent else Color.White,
+                            fontSize = if (state.stage == Stage.Revealed) 26.sp else 16.sp,
+                            fontFamily = FontFamily.Monospace,
+                            lineHeight = if (state.stage == Stage.Revealed) 36.sp else 22.sp,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(bottom = 32.dp).alpha(if (state.stage == Stage.Result) pulse else 1f),
+                        )
+                    }
+                }
+                if (scriptMode) {
+                    // Botón de respaldo del guion: pone lo que se espera ahora y dispara el mismo paso que la voz.
+                    val action = expectedAction(state.stage, greeted)
+                    when {
+                        action != null -> HudButton(
+                            book.line(action).label,
+                            action != ScriptAction.Continue || open.value > 0.9f,
+                        ) { perform(action) }
+                        state.stage != Stage.Finished -> HudButton("…", false) {}
+                    }
+                } else {
+                    val label = if (state.stage == Stage.Revealed) texts.nextButton else texts.analyzeButton
+                    val active = state.stage == Stage.Ready || (state.stage == Stage.Revealed && open.value > 0.9f)
+                    if (state.stage != Stage.Finished) {
+                        HudButton(label, active) {
+                            when (state.stage) {
+                                Stage.Ready -> engine.analyze()
+                                Stage.Revealed -> engine.next()
+                                else -> {}
+                            }
+                            sync()
+                        }
                     }
                 }
             }
@@ -268,7 +322,7 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
             Box(
                 Modifier.align(Alignment.TopStart).size(88.dp).pointerInput(Unit) {
                     detectTapGestures(onLongPress = {
-                        engine.reset(); resetCount++; connectLine = ""; sync()
+                        engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; sync()
                         started = false // vuelve al menú principal
                     })
                 },

@@ -41,6 +41,20 @@ class EffectEngineTest {
         assertEquals(0, e.state.phase)
     }
 
+    @Test fun idleStartWaitsForLink() {
+        val e = EffectEngine(Texts.forLanguage("es").phases.take(1), startIdle = true)
+        assertEquals(Stage.Idle, e.state.stage)
+        e.connected(); e.analyze() // ignorados antes de enlazar
+        assertEquals(Stage.Idle, e.state.stage)
+        e.link()
+        assertEquals(Stage.Connecting, e.state.stage)
+        e.link() // ya enlazando: no hace nada
+        e.connected()
+        assertEquals(Stage.Ready, e.state.stage)
+        e.reset()
+        assertEquals(Stage.Idle, e.state.stage)
+    }
+
     @Test fun defaultTextsEsAndEn() {
         val es = Texts.forLanguage("es", EffectParams(24, 13, "7 de picas")).phases
         assertEquals("Hay 24 cartas cara abajo.", es[0].text)
