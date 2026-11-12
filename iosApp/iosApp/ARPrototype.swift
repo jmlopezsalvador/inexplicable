@@ -273,6 +273,7 @@ struct ARSceneView: UIViewRepresentable {
             generation += 1
             analysisTimer?.invalidate()
             send("analyzing_off")
+            SpeechBridge.stop()
         }
 
         // MARK: Sonido (lo genera SoundEngine.swift)
@@ -324,6 +325,7 @@ struct ARSceneView: UIViewRepresentable {
             generation += 1
             analysisTimer?.invalidate()
             send("analyzing_off")
+            SpeechBridge.stop()
             placed = false
             deckAnchor = nil
             deckRoot = nil; particlesRoot = nil; ringsRoot = nil; cubeNode = nil; cardNode = nil
@@ -357,6 +359,7 @@ struct ARSceneView: UIViewRepresentable {
             model.canContinue = false
             model.status = "Anclado (" + how + ")"
             model.stage = .ready
+            SpeechBridge.say(model.texts.ready, reveal: false)
         }
 
         @objc func handleTap(_ gr: UITapGestureRecognizer) {
@@ -382,6 +385,7 @@ struct ARSceneView: UIViewRepresentable {
             model.stage = .analyzing
             model.progress = 0
             send("analyzing_on")
+            SpeechBridge.say(model.texts.analyzing, reveal: false)
             particlesRoot?.speed = 2.5
             ringsRoot?.speed = 2.2
             let total = max(0.5, cfg.analyzeSeconds)
@@ -449,6 +453,8 @@ struct ARSceneView: UIViewRepresentable {
             DispatchQueue.main.asyncAfter(deadline: .now() + open * 0.45) { [weak self] in
                 guard let self = self, self.generation == gen else { return }
                 self.showCard()
+                let phases = self.model.texts.phases
+                if self.model.phaseIndex < phases.count { SpeechBridge.say(phases[self.model.phaseIndex], reveal: true) }
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + open) { [weak self] in
                 guard let self = self, self.generation == gen else { return }
@@ -502,6 +508,7 @@ struct ARSceneView: UIViewRepresentable {
                 model.stage = .ready
             } else {
                 model.stage = .finished
+                SpeechBridge.say(model.texts.finished, reveal: false)
             }
         }
 

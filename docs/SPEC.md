@@ -119,7 +119,9 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 - **Configuración por secciones:** Juego y presentación, Efecto y fases, Tiempos, Colores (3 colores con selector), Sonido, Detección RA (iOS).
   Todo es configurable ahora y se podrá recortar al final.
 - **Complejidad visual** 1-3 (HUD y densidad de efectos). **Sonido** sintetizado (sin ficheros): ruido de ambiente, barrido al analizar, ping y whoosh.
-- **Pendiente:** foto del dorso de la baraja 3D (§12.1), voz TTS (§7.3), selector de dorsos.
+- **Voz (TTS, hecha 2026-11-12):** voz del sistema en el idioma del móvil. Dice el estado («baraja enlazada», «analizando…», «análisis completo») y lee la
+  predicción al aparecer el cartel. Configurable: activar, estado sí/no, leer predicción sí/no, velocidad, tono y «Probar voz». Falta elegir una voz concreta.
+- **Pendiente:** foto del dorso de la baraja 3D (§12.1), selector de dorsos, elegir voz concreta, guion (§12.2).
 
 ## 12. Líneas de análisis (features propuestas, sin comprometer)
 ### 12.1 Modo «Foto» (cuarto modo) — viable

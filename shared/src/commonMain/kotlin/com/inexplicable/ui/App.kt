@@ -74,8 +74,14 @@ private fun InexplicableTheme(palette: Palette, content: @Composable () -> Unit)
 fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) {
     val lang = remember { deviceLanguage() }
     val initial = remember { store.load() }
+    val speaker = rememberSpeaker()
     InexplicableTheme(initial.palette()) {
-        ConfigScreen(lang, initial, arAvailable, onSave = { store.save(it); onClose() }, onCancel = onClose)
+        ConfigScreen(
+            lang, initial, arAvailable,
+            onTestVoice = { text, rate, pitch -> speaker.speak(text, lang, rate, pitch) },
+            onSave = { speaker.stop(); store.save(it); onClose() },
+            onCancel = { speaker.stop(); onClose() },
+        )
     }
 }
 
@@ -118,6 +124,24 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         sound.analyzing(on && state.stage == Stage.Analyzing)
         if (on && state.stage == Stage.Result) sound.ping()
         if (on && state.stage == Stage.Revealed) sound.reveal()
+    }
+
+    // Voz: estado al enlazar, al empezar a analizar y al terminar; la predicción se lee cuando aparece el cartel.
+    val speaker = rememberSpeaker()
+    LaunchedEffect(state, started, settings) {
+        if (!started || !settings.voiceOn) { speaker.stop(); return@LaunchedEffect }
+        val rate = settings.voiceRate / 100f
+        val pitch = settings.voicePitch / 100f
+        when (state.stage) {
+            Stage.Ready -> if (settings.voiceStatus && state.phase == 0) speaker.speak(texts.ready, lang, rate, pitch)
+            Stage.Analyzing -> if (settings.voiceStatus) speaker.speak(texts.analyzing, lang, rate, pitch)
+            Stage.Revealed -> if (settings.voiceReveal) {
+                delay((settings.openMs * 0.45).toLong())
+                phases.getOrNull(state.phase)?.let { speaker.speak(it.text, lang, rate, pitch) }
+            }
+            Stage.Finished -> if (settings.voiceStatus) speaker.speak(texts.finished, lang, rate, pitch)
+            else -> {}
+        }
     }
 
     fun sync() { state = engine.state }
@@ -259,8 +283,10 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     lang = lang,
                     initial = settings,
                     arAvailable = onStartAR != null,
-                    onCancel = { showConfig = false },
+                    onTestVoice = { text, rate, pitch -> speaker.speak(text, lang, rate, pitch) },
+                    onCancel = { speaker.stop(); showConfig = false },
                     onSave = { new ->
+                        speaker.stop()
                         store.save(new)
                         settings = new
                         connectLine = ""

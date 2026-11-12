@@ -39,7 +39,11 @@ izquierda (vuelve al menú principal). Multiidioma (el del móvil), todo local.
 **Flujo:** la app arranca en un menú (anillos + EMPEZAR). EMPEZAR inicia un juego nuevo en el modo elegido en la configuración
 (`mode`: HUD plano `reader`, Baraja 3D `deck3d` o RA `ar`; solo se aplica al empezar). Cada fase: Analizar → animación → aparece un
 «resultado» pulsable (`Stage.Result`) → al tocarlo se abre → se lee la predicción (`Stage.Revealed`) → Continuar. La paleta (3 colores),
-`hudLevel` (1-3) y los tiempos son ajustes; la configuración está en secciones plegables (`ConfigScreen.kt`). En iOS la RA es nativa (`iosApp/ARPrototype.swift`): Kotlin llama a Swift con
+`hudLevel` (1-3) y los tiempos son ajustes; la configuración está en secciones plegables (`ConfigScreen.kt`).
+**Sonido y voz:** `Sound.kt` (sintetizador común `Synth`, sin ficheros; Android lo reproduce con `AudioTrack`, iOS lo replica en Swift en
+`SoundEngine.swift`, hay que mantener ambos iguales) y `Speech.kt` (TTS: `TextToSpeech` en Android; en iOS Kotlin manda órdenes de texto a
+`SpeechBridge` en Swift mediante `IosSpeechHooks`/`IosSoundHooks`). Todo lo nativo de iOS que no se pueda hacer en Kotlin se hace así: un
+`handler` de texto en `iosMain` que Swift rellena en `iOSApp.init`. En iOS la RA es nativa (`iosApp/ARPrototype.swift`): Kotlin llama a Swift con
 `onStartAR`, y la configuración se abre sobre la RA con `ConfigViewController`. Swift lee los ajustes de detección (`det*`, `detManualTap`)
 de `UserDefaults` con las mismas claves que escribe `SettingsStore`. La «Baraja 3D» (`DeckScene.kt` + matemática en `Scene3D.kt`: mesa + baraja con proyección propia en `Canvas`, cámara orbital con
 arrastrar/pellizcar, anillos, partículas, cubo de resultado y burbuja) es un modo más y sirve para afinar las animaciones sin iPhone;

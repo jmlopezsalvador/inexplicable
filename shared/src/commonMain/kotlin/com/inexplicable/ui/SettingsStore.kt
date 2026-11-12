@@ -51,6 +51,11 @@ data class AppSettings(
     val colorAccent: Long = DEFAULT_ACCENT,
     val soundOn: Boolean = true,      // efectos de sonido (ambiente, análisis, resultado y apertura)
     val soundVolume: Int = 60,        // 0..100
+    val voiceOn: Boolean = true,      // voz del sistema (TTS)
+    val voiceStatus: Boolean = true,  // dice los mensajes de estado («baraja enlazada», «analizando…», «análisis completo»)
+    val voiceReveal: Boolean = true,  // lee la predicción al abrir el resultado
+    val voiceRate: Int = 100,         // velocidad en % (50..200)
+    val voicePitch: Int = 100,        // tono en % (50..200)
 ) {
     fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
 
@@ -88,6 +93,11 @@ class SettingsStore(private val prefs: KeyValueStore) {
             colorAccent = prefs.getLong("colorAccent", d.colorAccent),
             soundOn = prefs.getBoolean("soundOn", d.soundOn),
             soundVolume = prefs.getLong("soundVolume", d.soundVolume.toLong()).toInt().coerceIn(0, 100),
+            voiceOn = prefs.getBoolean("voiceOn", d.voiceOn),
+            voiceStatus = prefs.getBoolean("voiceStatus", d.voiceStatus),
+            voiceReveal = prefs.getBoolean("voiceReveal", d.voiceReveal),
+            voiceRate = prefs.getLong("voiceRate", d.voiceRate.toLong()).toInt().coerceIn(50, 200),
+            voicePitch = prefs.getLong("voicePitch", d.voicePitch.toLong()).toInt().coerceIn(50, 200),
         )
     }
 
@@ -115,6 +125,11 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putLong("colorAccent", s.colorAccent)
         prefs.putBoolean("soundOn", s.soundOn)
         prefs.putLong("soundVolume", s.soundVolume.toLong())
+        prefs.putBoolean("voiceOn", s.voiceOn)
+        prefs.putBoolean("voiceStatus", s.voiceStatus)
+        prefs.putBoolean("voiceReveal", s.voiceReveal)
+        prefs.putLong("voiceRate", s.voiceRate.toLong())
+        prefs.putLong("voicePitch", s.voicePitch.toLong())
     }
 
     /**

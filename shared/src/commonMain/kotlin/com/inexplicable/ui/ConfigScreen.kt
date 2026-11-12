@@ -45,6 +45,7 @@ fun ConfigScreen(
     lang: String,
     initial: AppSettings,
     arAvailable: Boolean,
+    onTestVoice: (text: String, rate: Float, pitch: Float) -> Unit,
     onSave: (AppSettings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -76,6 +77,12 @@ fun ConfigScreen(
     // Sonido
     var soundOn by remember { mutableStateOf(initial.soundOn) }
     var soundVolume by remember { mutableStateOf(initial.soundVolume / 100f) }
+    // Voz
+    var voiceOn by remember { mutableStateOf(initial.voiceOn) }
+    var voiceStatus by remember { mutableStateOf(initial.voiceStatus) }
+    var voiceReveal by remember { mutableStateOf(initial.voiceReveal) }
+    var voiceRate by remember { mutableStateOf(initial.voiceRate / 100f) }
+    var voicePitch by remember { mutableStateOf(initial.voicePitch / 100f) }
     // Detección RA
     var detTries by remember { mutableStateOf(initial.detTries.toString()) }
     var detTol by remember { mutableStateOf(initial.detTolerancePct.toString()) }
@@ -170,6 +177,20 @@ fun ConfigScreen(
                 Slider(soundVolume, { soundVolume = it })
             }
 
+            Section(t("Voz", "Voice"), false) {
+                Label(t("Usa la voz del sistema en el idioma del móvil.", "Uses the system voice in the phone's language."))
+                SwitchRow(voiceOn, t("Voz activada", "Voice on")) { voiceOn = it }
+                SwitchRow(voiceStatus, t("Decir mensajes de estado", "Speak status messages")) { voiceStatus = it }
+                SwitchRow(voiceReveal, t("Leer la predicción al abrir", "Read the prediction when opened")) { voiceReveal = it }
+                Label(t("Velocidad", "Speed") + ": " + (voiceRate * 100).toInt() + "%")
+                Slider(voiceRate, { voiceRate = it }, valueRange = 0.5f..2f)
+                Label(t("Tono", "Pitch") + ": " + (voicePitch * 100).toInt() + "%")
+                Slider(voicePitch, { voicePitch = it }, valueRange = 0.5f..2f)
+                TextButton({
+                    onTestVoice(t("Hola. Soy el lector de la baraja.", "Hello. I am the deck reader."), voiceRate, voicePitch)
+                }) { Text(t("Probar voz", "Test voice")) }
+            }
+
             if (arAvailable) Section(t("Detección RA (pruebas)", "AR detection (testing)"), false) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(detTries, { detTries = it }, Modifier.weight(1f),
@@ -217,6 +238,8 @@ fun ConfigScreen(
                     mode = mode, hudLevel = level,
                     colorPrimary = cPrimary, colorSecondary = cSecondary, colorAccent = cAccent,
                     soundOn = soundOn, soundVolume = (soundVolume * 100).toInt().coerceIn(0, 100),
+                    voiceOn = voiceOn, voiceStatus = voiceStatus, voiceReveal = voiceReveal,
+                    voiceRate = (voiceRate * 100).toInt().coerceIn(50, 200), voicePitch = (voicePitch * 100).toInt().coerceIn(50, 200),
                     detTries = detTries.toIntOrNull()?.coerceIn(1, 20) ?: d.detTries,
                     detTolerancePct = detTol.toIntOrNull()?.coerceIn(0, 80) ?: d.detTolerancePct,
                     detIntervalMs = detInterval.toIntOrNull()?.coerceIn(100, 2000) ?: d.detIntervalMs,

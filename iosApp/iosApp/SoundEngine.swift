@@ -110,6 +110,47 @@ final class SoundSynth {
     func stop() { engine.stop() }
 }
 
+/// Voz del sistema (TTS). Kotlin manda «speak» (idioma, velocidad, tono y texto separados por U+001F) o «stop» por `IosSpeechHooks`.
+enum SpeechBridge {
+    private static let synth = AVSpeechSynthesizer()
+
+    static func install() {
+        IosSpeechHooks.shared.handler = { cmd in
+            DispatchQueue.main.async { handle(cmd) }
+        }
+    }
+
+    private static func handle(_ cmd: String) {
+        if cmd == "stop" { synth.stopSpeaking(at: .immediate); return }
+        let parts = cmd.components(separatedBy: "\u{1F}")
+        guard parts.count >= 5, parts[0] == "speak" else { return }
+        let rate = Float(parts[2]) ?? 1
+        let pitch = Float(parts[3]) ?? 1
+        speak(parts[4...].joined(separator: "\u{1F}"), lang: parts[1], rate: rate, pitch: pitch)
+    }
+
+    static func speak(_ text: String, lang: String, rate: Float, pitch: Float) {
+        synth.stopSpeaking(at: .immediate)
+        let u = AVSpeechUtterance(string: text)
+        u.voice = AVSpeechSynthesisVoice(language: lang == "en" ? "en-US" : "es-ES")
+        u.rate = min(max(AVSpeechUtteranceDefaultSpeechRate * rate, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+        u.pitchMultiplier = min(max(pitch, 0.5), 2.0)
+        synth.speak(u)
+    }
+
+    static func stop() { synth.stopSpeaking(at: .immediate) }
+
+    /// Para la RA nativa: habla con los ajustes guardados por Kotlin. `reveal` = es la predicción (no un mensaje de estado).
+    static func say(_ text: String, reveal: Bool) {
+        let d = UserDefaults.standard
+        func bool(_ key: String) -> Bool { d.object(forKey: key) == nil ? true : d.bool(forKey: key) }
+        func pct(_ key: String) -> Float { d.object(forKey: key) == nil ? 1 : Float(d.integer(forKey: key)) / 100 }
+        guard bool("voiceOn"), bool(reveal ? "voiceReveal" : "voiceStatus") else { return }
+        let lang = String((Locale.preferredLanguages.first ?? "es").prefix(2))
+        speak(text, lang: lang, rate: pct("voiceRate"), pitch: pct("voicePitch"))
+    }
+}
+
 /// Une las órdenes de texto de Kotlin con el sintetizador.
 enum SoundBridge {
     static let synth = SoundSynth()

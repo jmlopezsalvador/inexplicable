@@ -3,6 +3,8 @@
 package com.inexplicable.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSLocale
 import platform.Foundation.NSUserDefaults
@@ -36,6 +38,29 @@ private class IosSoundEngine : SoundEngine {
 }
 
 actual fun createSoundEngine(): SoundEngine = IosSoundEngine()
+
+/**
+ * Puente con la voz de Swift (`SpeechBridge`): órdenes de texto «speak», «stop». En «speak» el resto va separado por U+001F:
+ * idioma, velocidad, tono y texto.
+ */
+object IosSpeechHooks {
+    var handler: ((String) -> Unit)? = null
+}
+
+private class IosSpeaker : Speaker {
+    override fun speak(text: String, lang: String, rate: Float, pitch: Float) {
+        IosSpeechHooks.handler?.invoke("speak\u001F$lang\u001F$rate\u001F$pitch\u001F$text")
+    }
+    override fun stop() { IosSpeechHooks.handler?.invoke("stop") }
+    override fun release() { IosSpeechHooks.handler?.invoke("stop") }
+}
+
+@Composable
+actual fun rememberSpeaker(): Speaker {
+    val speaker = remember { IosSpeaker() }
+    DisposableEffect(speaker) { onDispose { speaker.release() } }
+    return speaker
+}
 
 actual fun deviceLanguage(): String =
     (NSLocale.preferredLanguages.firstOrNull() as? String)?.substringBefore('-')?.lowercase() ?: "es"

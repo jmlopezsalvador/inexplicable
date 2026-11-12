@@ -8,6 +8,7 @@ struct iOSApp: App {
     init() {
         // Conecta Kotlin con el sintetizador de sonido antes de que arranque la interfaz.
         SoundBridge.install()
+        SpeechBridge.install()
     }
 
     var body: some Scene {
