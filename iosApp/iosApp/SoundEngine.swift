@@ -81,6 +81,10 @@ final class SoundSynth {
     func start() {
         if started { engine.prepare(); try? engine.start(); return }
         started = true
+        // Si el sistema cambia la configuración de audio (p. ej. al empezar a grabar con el micrófono), se vuelve a arrancar el motor.
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            _ = try? self?.engine.start()
+        }
         // `.ambient` se mezcla con otras apps y respeta el interruptor de silencio.
         try? AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)

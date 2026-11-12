@@ -1,5 +1,7 @@
 package com.inexplicable.ui
 
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +48,9 @@ fun ConfigScreen(
     initial: AppSettings,
     arAvailable: Boolean,
     onTestVoice: (text: String, rate: Float, pitch: Float) -> Unit,
+    backImage: ImageBitmap?,
+    onBackPhoto: (ByteArray) -> Unit,
+    onClearBack: () -> Unit,
     onSave: (AppSettings) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -84,6 +89,13 @@ fun ConfigScreen(
     var voiceReveal by remember { mutableStateOf(initial.voiceReveal) }
     var voiceRate by remember { mutableStateOf(initial.voiceRate / 100f) }
     var voicePitch by remember { mutableStateOf(initial.voicePitch / 100f) }
+    // Escucha por voz
+    var voiceListen by remember { mutableStateOf(initial.voiceListen) }
+    var wakeRequired by remember { mutableStateOf(initial.wakeRequired) }
+    var matchPct by remember { mutableStateOf(initial.matchPct / 100f) }
+    var listenDebug by remember { mutableStateOf(initial.listenDebug) }
+    // Foto del dorso
+    var showCamera by remember { mutableStateOf(false) }
     // Detección RA
     var detTries by remember { mutableStateOf(initial.detTries.toString()) }
     var detTol by remember { mutableStateOf(initial.detTolerancePct.toString()) }
@@ -97,6 +109,7 @@ fun ConfigScreen(
     val num = KeyboardOptions(keyboardType = KeyboardType.Number)
     val dec = KeyboardOptions(keyboardType = KeyboardType.Decimal)
 
+    Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(Color(0xFF00050E)).imePadding()) {
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -108,6 +121,7 @@ fun ConfigScreen(
                 Label(t("Modo de juego (se aplica al empezar un juego nuevo)", "Game mode (applies when a new game starts)"))
                 ModeOption(mode == MODE_READER, t("HUD plano (lector)", "Flat HUD (reader)")) { mode = MODE_READER }
                 ModeOption(mode == MODE_DECK3D, t("Baraja 3D (mesa virtual)", "3D deck (virtual table)")) { mode = MODE_DECK3D }
+                ModeOption(mode == MODE_PHOTO, t("Foto de la baraja (efectos sobre una foto)", "Deck photo (effects over a photo)")) { mode = MODE_PHOTO }
                 if (arAvailable) ModeOption(mode == MODE_AR, t("Realidad aumentada", "Augmented reality")) { mode = MODE_AR }
                 Label(t("Control del avance (se aplica al empezar un juego nuevo)", "How the effect advances (applies when a new game starts)"))
                 ModeOption(control == CONTROL_BUTTONS, t("Botones de la pantalla", "On-screen buttons")) { control = CONTROL_BUTTONS }
@@ -195,6 +209,28 @@ fun ConfigScreen(
                 }) { Text(t("Probar voz", "Test voice")) }
             }
 
+            Section(t("Escucha por voz (conversación)", "Voice listening (conversation)"), false) {
+                Label(t("Solo con «Conversación guionizada». Necesita permiso de micrófono; en Android el reconocedor puede hacer un pitido al escuchar.",
+                    "Only with “Scripted conversation”. Needs microphone permission; on Android the recognizer may beep when listening."))
+                SwitchRow(voiceListen, t("Escuchar al mago con el micrófono", "Listen to the magician with the microphone")) { voiceListen = it }
+                SwitchRow(wakeRequired, t("Exigir «Jarvis» en las órdenes", "Require “Jarvis” in commands")) { wakeRequired = it }
+                Label(t("Coincidencia mínima", "Minimum match") + ": " + (matchPct * 100).toInt() + "%")
+                Slider(matchPct, { matchPct = it }, valueRange = 0.5f..1f)
+                SwitchRow(listenDebug, t("Mostrar lo último que se oyó (ajustes)", "Show the last thing heard (tuning)")) { listenDebug = it }
+            }
+
+            Section(t("Dorso de la baraja 3D", "3D deck back"), false) {
+                Label(t("Foto del dorso de tu baraja dentro de un marco; se usa como dorso de la baraja 3D.",
+                    "Photo of your deck's back inside a frame; used as the 3D deck's back."))
+                if (backImage != null) {
+                    Image(backImage, null, Modifier.size(width = 84.dp, height = 117.dp).border(1.dp, accent.copy(alpha = 0.5f)))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton({ showCamera = true }) { Text(t("Hacer foto del dorso", "Take photo of the back")) }
+                    if (backImage != null) TextButton(onClearBack) { Text(t("Quitar foto", "Remove photo")) }
+                }
+            }
+
             if (arAvailable) Section(t("Detección RA (pruebas)", "AR detection (testing)"), false) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(detTries, { detTries = it }, Modifier.weight(1f),
@@ -253,9 +289,22 @@ fun ConfigScreen(
                     detMoveCm = detMove.toIntOrNull()?.coerceIn(1, 20) ?: d.detMoveCm,
                     detShowDebug = detDebug,
                     detManualTap = detManual,
+                    voiceListen = voiceListen, wakeRequired = wakeRequired,
+                    matchPct = (matchPct * 100).toInt().coerceIn(50, 100), listenDebug = listenDebug,
                 ))
             }, Modifier.weight(1f)) { Text(t("Guardar", "Save")) }
         }
+    }
+    if (showCamera) {
+        CameraCapture(
+            frameAspect = 63f / 88f, cropToFrame = true,
+            hint = t("Coloca el dorso de una carta dentro del marco", "Place the back of a card inside the frame"),
+            cancelLabel = t("Cancelar", "Cancel"),
+        ) { bytes ->
+            showCamera = false
+            if (bytes != null) onBackPhoto(bytes)
+        }
+    }
     }
 }
 

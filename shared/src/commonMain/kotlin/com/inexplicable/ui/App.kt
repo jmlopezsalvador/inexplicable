@@ -11,8 +11,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,7 +30,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -45,7 +50,9 @@ import com.inexplicable.effect.Texts
 import com.inexplicable.script.ScriptAction
 import com.inexplicable.script.ScriptBooks
 import com.inexplicable.script.expectedAction
+import com.inexplicable.script.hear
 import kotlinx.coroutines.delay
+import kotlinx.datetime.Clock
 
 private val HudBg = Color(0xFF00050E)
 
@@ -78,13 +85,46 @@ fun ConfigHost(store: SettingsStore, arAvailable: Boolean, onClose: () -> Unit) 
     val lang = remember { deviceLanguage() }
     val initial = remember { store.load() }
     val speaker = rememberSpeaker()
+    var backBytes by remember { mutableStateOf(store.loadBackPhoto()?.let(::base64ToBytes)) }
+    val backImage = remember(backBytes) { backBytes?.let(::decodeImage) }
     InexplicableTheme(initial.palette()) {
         ConfigScreen(
             lang, initial, arAvailable,
             onTestVoice = { text, rate, pitch -> speaker.speak(text, lang, rate, pitch) },
+            backImage = backImage,
+            onBackPhoto = { store.saveBackPhoto(bytesToBase64(it)); backBytes = it },
+            onClearBack = { store.saveBackPhoto(null); backBytes = null },
             onSave = { speaker.stop(); store.save(it); onClose() },
             onCancel = { speaker.stop(); onClose() },
         )
+    }
+}
+
+private fun nowMs(): Long = Clock.System.now().toEpochMilliseconds()
+
+/** Pantalla para ajustar las 4 esquinas de la baraja sobre la foto recién hecha. */
+@Composable
+private fun PhotoAdjustScreen(
+    photo: ImageBitmap, corners: List<Offset>, lang: String,
+    onChange: (List<Offset>) -> Unit, onRotate: () -> Unit, onRetake: () -> Unit, onConfirm: () -> Unit,
+) {
+    val pal = LocalPalette.current
+    fun t(es: String, en: String) = if (lang == "en") en else es
+    Box(Modifier.fillMaxSize().background(Color.Black)) {
+        PhotoAdjust(photo, corners, onChange)
+        Text(
+            t("Arrastra las 4 esquinas hasta ajustarlas a la baraja. El punto amarillo marca la esquina de arriba a la izquierda (lado corto arriba).",
+                "Drag the 4 corners to fit the deck. The yellow dot marks the top-left corner (short side on top)."),
+            color = Color.White, fontSize = 13.sp, textAlign = TextAlign.Center,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 64.dp, start = 24.dp, end = 24.dp),
+        )
+        Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TextButton(onRetake) { Text(t("REPETIR FOTO", "RETAKE"), color = pal.primary) }
+                TextButton(onRotate) { Text(t("GIRAR ↻", "ROTATE ↻"), color = pal.primary) }
+            }
+            HudButton(t("CONFIRMAR", "CONFIRM"), true, onConfirm)
+        }
     }
 }
 
@@ -108,7 +148,15 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     // Control por conversación: el efecto espera órdenes (saludar, enlazar, analizar…) y la app responde con su guion.
     val scriptMode = settings.control == CONTROL_SCRIPT
     val book = remember(lang) { ScriptBooks.forLanguage(lang) }
-    val engine = remember(phases, scriptMode) { EffectEngine(phases, startIdle = scriptMode) }
+    val photoMode = settings.mode == MODE_PHOTO
+    // Modo Foto: antes de enlazar hay que hacer y ajustar la foto de la baraja.
+    var photoStep by remember { mutableStateOf(0) }            // 0 sin foto, 1 cámara, 2 ajustando esquinas, 3 listo
+    var photoImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var corners by remember { mutableStateOf(defaultDeckCorners()) }
+    // Foto del dorso de la baraja 3D.
+    var backVersion by remember { mutableStateOf(0) }
+    val backImage = remember(settings, backVersion) { store.loadBackPhoto()?.let(::base64ToBytes)?.let(::decodeImage) }
+    val engine = remember(phases, scriptMode, photoMode) { EffectEngine(phases, startIdle = scriptMode || photoMode) }
     var state by remember(engine) { mutableStateOf(engine.state) }
     var resetCount by remember { mutableStateOf(0) }
     var showConfig by remember { mutableStateOf(false) }
@@ -136,19 +184,25 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
 
     // Voz: estado al enlazar, al empezar a analizar y al terminar; la predicción se lee cuando aparece el cartel.
     val speaker = rememberSpeaker()
+    // Mientras la app habla se ignora lo que oiga el micrófono (si no, se oiría a sí misma). La duración es una estimación.
+    val mutedUntil = remember { LongArray(1) }
+    fun say(text: String, rate: Float, pitch: Float) {
+        mutedUntil[0] = nowMs() + text.length * 80L + 900L
+        speaker.speak(text, lang, rate, pitch)
+    }
     LaunchedEffect(state, started, settings) {
         if (!started || !settings.voiceOn) { speaker.stop(); return@LaunchedEffect }
         val rate = settings.voiceRate / 100f
         val pitch = settings.voicePitch / 100f
         when (state.stage) {
-            Stage.Ready -> if (settings.voiceStatus && state.phase == 0) speaker.speak(if (scriptMode) book.linked else texts.ready, lang, rate, pitch)
+            Stage.Ready -> if (settings.voiceStatus && state.phase == 0) say(if (scriptMode) book.linked else texts.ready, rate, pitch)
             // En el guion, «analizando» lo dice la respuesta del propio paso.
-            Stage.Analyzing -> if (settings.voiceStatus && !scriptMode) speaker.speak(texts.analyzing, lang, rate, pitch)
+            Stage.Analyzing -> if (settings.voiceStatus && !scriptMode) say(texts.analyzing, rate, pitch)
             Stage.Revealed -> if (settings.voiceReveal) {
                 delay((settings.openMs * 0.45).toLong())
-                phases.getOrNull(state.phase)?.let { speaker.speak(it.text, lang, rate, pitch) }
+                phases.getOrNull(state.phase)?.let { say(it.text, rate, pitch) }
             }
-            Stage.Finished -> if (settings.voiceStatus) speaker.speak(if (scriptMode) book.finished else texts.finished, lang, rate, pitch)
+            Stage.Finished -> if (settings.voiceStatus) say(if (scriptMode) book.finished else texts.finished, rate, pitch)
             else -> {}
         }
     }
@@ -163,21 +217,40 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
 
     fun sync() { state = engine.state }
 
-    /** Ejecuta un paso del guion: lo llaman el botón de respaldo y, más adelante, el reconocimiento de voz. */
+    /** «Enlazar»: en el modo Foto primero hay que hacer la foto de la baraja; en los demás se enlaza ya. */
+    fun requestLink() {
+        if (photoMode && photoStep < 3) photoStep = 1 else { connectLine = ""; engine.link() }
+    }
+
+    /** Ejecuta un paso del guion: lo llaman el botón de respaldo y el reconocimiento de voz. */
     fun perform(action: ScriptAction) {
         val line = book.line(action)
         when (action) {
             ScriptAction.Greet -> greeted = true
-            ScriptAction.Link -> { connectLine = ""; engine.link() }
+            ScriptAction.Link -> requestLink()
             ScriptAction.Analyze -> engine.analyze()
             ScriptAction.Open -> engine.revealed()
             ScriptAction.Continue -> engine.next()
         }
         sync()
         subtitle = line.reply
-        if (settings.voiceOn && line.reply.isNotBlank()) speaker.speak(line.reply, lang, settings.voiceRate / 100f, settings.voicePitch / 100f)
+        if (settings.voiceOn && line.reply.isNotBlank()) say(line.reply, settings.voiceRate / 100f, settings.voicePitch / 100f)
     }
     fun openResult() { if (scriptMode) perform(ScriptAction.Open) else { engine.revealed(); sync() } }
+
+    // Escucha por voz (solo con el control por conversación): lo oído solo cuenta si encaja con la orden que toca ahora.
+    val listener = rememberListener()
+    var heard by remember { mutableStateOf("") }
+    val onHeard: (String) -> Unit = handler@{ text ->
+        heard = text
+        if (nowMs() < mutedUntil[0]) return@handler // la app está hablando
+        val action = hear(book, state.stage, greeted, text, settings.wakeRequired, settings.matchPct / 100.0)
+        if (action != null) perform(action)
+    }
+    val onHeardState by rememberUpdatedState(onHeard)
+    LaunchedEffect(started, scriptMode, settings.voiceListen, lang) {
+        if (started && scriptMode && settings.voiceListen) listener.start(lang) { onHeardState(it) } else listener.stop()
+    }
 
     // Efecto de conexión con la baraja.
     LaunchedEffect(engine, resetCount, started, state.stage) {
@@ -211,8 +284,18 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         val pal = LocalPalette.current
         Box(Modifier.fillMaxSize().background(HudBg)) {
             val shownPhase = phases.getOrNull(state.phase)?.text ?: ""
+            val photo = photoImage
+            val photoShown = started && photoMode && photoStep == 3 && photo != null
+            val scene3d = sim3d || photoShown // escena con burbuja propia en lugar del HUD plano
             if (sim3d) {
                 DeckScene(
+                    stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
+                    bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
+                    tapLabel = texts.tapToReveal, time = time, onOpen = ::openResult, backImage = backImage,
+                )
+            } else if (photoShown && photo != null) {
+                PhotoScene(
+                    photo = photo, corners = corners,
                     stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
                     bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
                     tapLabel = texts.tapToReveal, time = time, onOpen = ::openResult,
@@ -248,7 +331,8 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                             store.publishForAR(fresh.effectivePhases(ft).map { it.text }, ft)
                             onStartAR()
                         } else {
-                            engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; sync()
+                            engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; heard = ""; sync()
+                            photoStep = 0; photoImage = null; corners = defaultDeckCorners()
                             // Sin RA nativa (Android) el modo RA cae al HUD plano.
                             playMode = if (fresh.mode == MODE_AR) MODE_READER else fresh.mode
                             started = true
@@ -260,14 +344,19 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(texts.title, color = pal.primary, fontSize = 18.sp, letterSpacing = 8.sp, fontWeight = FontWeight.Light)
+                if (scriptMode && settings.voiceListen && settings.listenDebug) {
+                    // Ayuda para ajustar el reconocimiento: lo último que se oyó (se quitará).
+                    Text("● " + heard.ifBlank { "…" }, color = Color.Gray, fontSize = 11.sp, fontFamily = FontFamily.Monospace,
+                        textAlign = TextAlign.Center, modifier = Modifier.padding(top = 6.dp))
+                }
                 Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                     val message = when (state.stage) {
-                        Stage.Idle -> ""
+                        Stage.Idle -> if (photoMode && !scriptMode) (if (lang == "en") "Take a photo of the deck to link." else "Haz una foto de la baraja para enlazar.") else ""
                         Stage.Connecting -> connectLine
                         Stage.Ready -> texts.ready
                         Stage.Analyzing -> texts.analyzing + " " + (progress.value * 100).toInt() + "%"
-                        Stage.Result -> if (sim3d) "" else texts.tapToReveal
-                        Stage.Revealed -> if (sim3d || open.value < 0.35f) "" else typed(shownPhase, state)
+                        Stage.Result -> if (scene3d) "" else texts.tapToReveal
+                        Stage.Revealed -> if (scene3d || open.value < 0.35f) "" else typed(shownPhase, state)
                         Stage.Finished -> texts.finished
                     }
                     val pulse by rememberInfiniteTransition().animateFloat(
@@ -305,7 +394,10 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 } else {
                     val label = if (state.stage == Stage.Revealed) texts.nextButton else texts.analyzeButton
                     val active = state.stage == Stage.Ready || (state.stage == Stage.Revealed && open.value > 0.9f)
-                    if (state.stage != Stage.Finished) {
+                    if (state.stage == Stage.Idle) {
+                        // Modo Foto sin conversación: el botón pide la foto de la baraja.
+                        HudButton(if (lang == "en") "TAKE PHOTO" else "HACER FOTO", true) { requestLink(); sync() }
+                    } else if (state.stage != Stage.Finished) {
                         HudButton(label, active) {
                             when (state.stage) {
                                 Stage.Ready -> engine.analyze()
@@ -318,11 +410,35 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 }
             }
 
+            // Modo Foto: cámara y ajuste de esquinas ocupan toda la pantalla (las zonas ocultas siguen por encima).
+            if (started && photoMode && photoStep == 1) {
+                CameraCapture(
+                    frameAspect = 63f / 88f, cropToFrame = false,
+                    hint = if (lang == "en") "Take a photo of the deck on the table, from above or at a 3/4 angle. Keep it inside the frame."
+                           else "Haz una foto de la baraja sobre la mesa, desde arriba o en diagonal (3/4). Colócala dentro del marco.",
+                    cancelLabel = if (lang == "en") "Cancel" else "Cancelar",
+                ) { bytes ->
+                    val img = bytes?.let(::decodeImage)
+                    if (img != null) { photoImage = img; corners = defaultDeckCorners(img.width, img.height); photoStep = 2 } else photoStep = 0
+                }
+            }
+            if (started && photoMode && photoStep == 2 && photo != null) {
+                PhotoAdjustScreen(
+                    photo, corners, lang,
+                    onChange = { corners = it },
+                    onRotate = { corners = listOf(corners[1], corners[2], corners[3], corners[0]) },
+                    onRetake = { photoStep = 1 },
+                    onConfirm = { photoStep = 3; connectLine = ""; engine.link(); sync() },
+                )
+            }
+
             // Zonas ocultas: pulsación larga arriba a la izquierda = reset; arriba a la derecha = configuración.
             Box(
                 Modifier.align(Alignment.TopStart).size(88.dp).pointerInput(Unit) {
                     detectTapGestures(onLongPress = {
-                        engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; sync()
+                        engine.reset(); resetCount++; connectLine = ""; greeted = false; subtitle = ""; heard = ""; sync()
+                        photoStep = 0; photoImage = null; corners = defaultDeckCorners()
+                        listener.stop()
                         started = false // vuelve al menú principal
                     })
                 },
@@ -338,6 +454,9 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                     initial = settings,
                     arAvailable = onStartAR != null,
                     onTestVoice = { text, rate, pitch -> speaker.speak(text, lang, rate, pitch) },
+                    backImage = backImage,
+                    onBackPhoto = { store.saveBackPhoto(bytesToBase64(it)); backVersion++ },
+                    onClearBack = { store.saveBackPhoto(null); backVersion++ },
                     onCancel = { speaker.stop(); showConfig = false },
                     onSave = { new ->
                         speaker.stop()

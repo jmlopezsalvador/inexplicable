@@ -7,6 +7,7 @@ import com.inexplicable.effect.UiTexts
 const val MODE_READER = "reader"
 const val MODE_AR = "ar"
 const val MODE_DECK3D = "deck3d"
+const val MODE_PHOTO = "photo"   // se hace una foto de la baraja y los efectos se dibujan sobre ella
 
 const val CONTROL_BUTTONS = "buttons"   // el mago pulsa los botones de la pantalla
 const val CONTROL_SCRIPT = "script"     // conversación guionizada: la app habla y el mago dispara cada paso (botón o, luego, voz)
@@ -60,6 +61,10 @@ data class AppSettings(
     val voiceRate: Int = 100,         // velocidad en % (50..200)
     val voicePitch: Int = 100,        // tono en % (50..200)
     val control: String = CONTROL_BUTTONS, // cómo avanza el efecto (se aplica al empezar un juego nuevo)
+    val voiceListen: Boolean = false, // en el control por conversación: escuchar al mago con el micrófono
+    val wakeRequired: Boolean = true, // exigir la palabra «Jarvis» en las órdenes (no en el saludo)
+    val matchPct: Int = 80,           // % de coincidencia mínimo entre lo oído y la frase esperada
+    val listenDebug: Boolean = true,  // muestra en pantalla lo último que se ha oído (para ajustar; se quitará)
 ) {
     fun palette() = Palette(colorFrom(colorPrimary), colorFrom(colorSecondary), colorFrom(colorAccent))
 
@@ -89,7 +94,7 @@ class SettingsStore(private val prefs: KeyValueStore) {
             detMoveCm = prefs.getLong("detMoveCm", d.detMoveCm.toLong()).toInt(),
             detShowDebug = prefs.getBoolean("detShowDebug", d.detShowDebug),
             detManualTap = prefs.getBoolean("detManualTap", d.detManualTap),
-            mode = prefs.getString("mode")?.takeIf { it == MODE_READER || it == MODE_AR || it == MODE_DECK3D } ?: d.mode,
+            mode = prefs.getString("mode")?.takeIf { it == MODE_READER || it == MODE_AR || it == MODE_DECK3D || it == MODE_PHOTO } ?: d.mode,
             openMs = prefs.getLong("openMs", d.openMs),
             hudLevel = prefs.getLong("hudLevel", d.hudLevel.toLong()).toInt().coerceIn(1, 3),
             colorPrimary = prefs.getLong("colorPrimary", d.colorPrimary),
@@ -103,6 +108,10 @@ class SettingsStore(private val prefs: KeyValueStore) {
             voiceRate = prefs.getLong("voiceRate", d.voiceRate.toLong()).toInt().coerceIn(50, 200),
             voicePitch = prefs.getLong("voicePitch", d.voicePitch.toLong()).toInt().coerceIn(50, 200),
             control = prefs.getString("control")?.takeIf { it == CONTROL_BUTTONS || it == CONTROL_SCRIPT } ?: d.control,
+            voiceListen = prefs.getBoolean("voiceListen", d.voiceListen),
+            wakeRequired = prefs.getBoolean("wakeRequired", d.wakeRequired),
+            matchPct = prefs.getLong("matchPct", d.matchPct.toLong()).toInt().coerceIn(50, 100),
+            listenDebug = prefs.getBoolean("listenDebug", d.listenDebug),
         )
     }
 
@@ -136,7 +145,16 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putLong("voiceRate", s.voiceRate.toLong())
         prefs.putLong("voicePitch", s.voicePitch.toLong())
         prefs.putString("control", s.control)
+        prefs.putBoolean("voiceListen", s.voiceListen)
+        prefs.putBoolean("wakeRequired", s.wakeRequired)
+        prefs.putLong("matchPct", s.matchPct.toLong())
+        prefs.putBoolean("listenDebug", s.listenDebug)
     }
+
+    /** Foto del dorso de la baraja 3D (JPEG en base64) o null si no hay. Se guarda aparte: es grande y no forma parte de `AppSettings`. */
+    fun loadBackPhoto(): String? = prefs.getString("backPhoto")?.takeIf { it.isNotEmpty() }
+
+    fun saveBackPhoto(base64: String?) = prefs.putString("backPhoto", base64 ?: "")
 
     /**
      * Publica las fases y textos ya resueltos (idioma, números, personalización) para la RA nativa de iOS, que los lee de

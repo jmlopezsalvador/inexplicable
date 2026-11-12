@@ -43,6 +43,13 @@ izquierda (vuelve al menú principal). Multiidioma (el del móvil), todo local.
 **Control por conversación** (`control` = `script`, `script/Conversation.kt`): el efecto empieza en `Stage.Idle`; el mago dispara Saludar → Enlazar →
 (por fase) Analizar → Abrir → Continuar con un botón de respaldo (o, en el futuro, con voz vía `hear`); Jarvis responde con TTS y subtítulo.
 Todavía solo en HUD plano y Baraja 3D (no en la RA nativa de iOS).
+**Modo Foto** (`mode` = `photo`): al enlazar se hace una foto de la baraja (`CameraCapture`), se ajustan a mano las 4 esquinas (`PhotoAdjust`) y los mismos efectos 3D
+se dibujan sobre la foto (`PhotoScene`): `Photo.kt` calcula la homografía y la pose de la cámara a partir de las esquinas y las medidas reales de la baraja
+(63×88 mm), suponiendo una focal normal de móvil. **Foto del dorso:** en la configuración, con marco; se guarda en base64 en el almacén de ajustes
+(`SettingsStore.loadBackPhoto`) y se pinta con perspectiva en la cara superior de la baraja 3D. La cámara es CameraX en Android y `Camera.swift` en iOS
+(igual que sonido/voz: puente de texto `IosCameraHooks`). **Escucha por voz** (`Listener`, ajuste `voiceListen`): `SpeechRecognizer` en Android, `Listen.swift`
+(`SFSpeechRecognizer`) en iOS; lo oído solo cuenta si encaja con la orden esperada (`hear`) y se ignora mientras la app habla. Permisos: CAMERA y RECORD_AUDIO
+(manifiesto de Android; `Info.plist` vía `project.yml` en iOS).
 **Sonido y voz:** `Sound.kt` (sintetizador común `Synth`, sin ficheros; Android lo reproduce con `AudioTrack`, iOS lo replica en Swift en
 `SoundEngine.swift`, hay que mantener ambos iguales) y `Speech.kt` (TTS: `TextToSpeech` en Android; en iOS Kotlin manda órdenes de texto a
 `SpeechBridge` en Swift mediante `IosSpeechHooks`/`IosSoundHooks`). Todo lo nativo de iOS que no se pueda hacer en Kotlin se hace así: un

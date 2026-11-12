@@ -13,7 +13,9 @@ targets:
       path: iosApp/Info.plist
       properties:
         CFBundleDisplayName: Inexplicable
-        NSCameraUsageDescription: La cámara se usa para la realidad aumentada sobre la baraja.
+        NSCameraUsageDescription: La cámara se usa para la realidad aumentada y para fotografiar la baraja.
+        NSMicrophoneUsageDescription: El micrófono se usa para escuchar las órdenes de voz de la conversación.
+        NSSpeechRecognitionUsageDescription: El reconocimiento de voz se usa para detectar las frases de la conversación guionizada.
         UILaunchScreen: {}
         UIRequiresFullScreen: true
         UIStatusBarHidden: true

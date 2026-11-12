@@ -2,9 +2,18 @@
 
 package com.inexplicable.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import org.jetbrains.skia.Image as SkiaImage
 import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSLocale
 import platform.Foundation.NSUserDefaults
@@ -16,6 +25,73 @@ actual fun SystemBarsEffect() {}
 
 @Composable
 actual fun LifecycleEffect(onPause: () -> Unit, onResume: () -> Unit) {}
+
+actual fun decodeImage(bytes: ByteArray): ImageBitmap? =
+    try { SkiaImage.makeFromEncoded(bytes).toComposeImageBitmap() } catch (e: Exception) { null }
+
+/**
+ * Puente con la cámara de Swift (`CameraBridge` en `Camera.swift`). Swift asigna `handler`; Kotlin pide una foto con `request` y Swift
+ * contesta con `deliver` (JPEG en base64, o vacío si se cancela). La orden va como texto separado por U+001F: «capture», proporción del
+ * marco, recortar (true/false), texto de ayuda y texto de cancelar.
+ */
+object IosCameraHooks {
+    var handler: ((String) -> Unit)? = null
+    private var callback: ((String) -> Unit)? = null
+
+    fun request(aspect: Float, crop: Boolean, hint: String, cancel: String, cb: (String) -> Unit) {
+        callback = cb
+        val h = handler
+        if (h == null) { callback = null; cb("") } else h("capture\u001F$aspect\u001F$crop\u001F$hint\u001F$cancel")
+    }
+
+    fun deliver(base64: String) {
+        val cb = callback
+        callback = null
+        cb?.invoke(base64)
+    }
+}
+
+@Composable
+actual fun CameraCapture(frameAspect: Float, cropToFrame: Boolean, hint: String, cancelLabel: String, onResult: (ByteArray?) -> Unit) {
+    // La cámara real la presenta Swift encima; aquí solo se pide y se espera la respuesta.
+    Box(Modifier.fillMaxSize().background(Color.Black))
+    LaunchedEffect(Unit) {
+        IosCameraHooks.request(frameAspect, cropToFrame, hint, cancelLabel) { b64 ->
+            onResult(if (b64.isBlank()) null else base64ToBytes(b64))
+        }
+    }
+}
+
+/**
+ * Puente con el reconocimiento de voz de Swift (`ListenBridge`): órdenes «start» (con el idioma) y «stop»; Swift devuelve cada frase
+ * con `deliver`.
+ */
+object IosListenHooks {
+    var handler: ((String) -> Unit)? = null
+    private var callback: ((String) -> Unit)? = null
+
+    fun start(lang: String, cb: (String) -> Unit) {
+        callback = cb
+        handler?.invoke("start\u001F$lang")
+    }
+
+    fun stop() { handler?.invoke("stop") }
+
+    fun deliver(text: String) { callback?.invoke(text) }
+}
+
+private class IosListener : Listener {
+    override fun start(lang: String, onHeard: (String) -> Unit) = IosListenHooks.start(lang, onHeard)
+    override fun stop() = IosListenHooks.stop()
+    override fun release() = IosListenHooks.stop()
+}
+
+@Composable
+actual fun rememberListener(): Listener {
+    val listener = remember { IosListener() }
+    DisposableEffect(listener) { onDispose { listener.release() } }
+    return listener
+}
 
 /**
  * Puente con el sintetizador de sonido de Swift (`SoundEngine.swift`): Swift asigna `handler` al arrancar y Kotlin le manda

@@ -4,9 +4,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -30,6 +34,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
@@ -62,7 +67,7 @@ private fun smooth01(x: Float): Float { val c = x.coerceIn(0f, 1f); return c * c
  *   análisis, así que llegan a esa zona subiendo desde donde estén, y se deshace despacio al abrir el resultado.
  * - `activity` 0..1: cuántas partículas se ven (entran y salen de una en una).
  */
-private class SceneAnim {
+internal class SceneAnim {
     val clock = MotionClock()
     var orbitT = 0f
     var gather = 0f
@@ -102,6 +107,7 @@ private class SceneAnim {
 fun DeckScene(
     stage: Stage, progress: Float, open: Float, level: Int,
     bubble: String?, tapLabel: String, time: State<Float>, onOpen: () -> Unit,
+    backImage: ImageBitmap? = null,
 ) {
     val pal = LocalPalette.current
     var yaw by remember { mutableStateOf(20f) }
@@ -127,63 +133,175 @@ fun DeckScene(
             drawRect(Color(0xFF00050E))
             drawTable(cam, pal.primary)
             drawFootprint(cam, stage, pal.primary)
-            drawDeck(cam)
+            drawDeck(cam, backImage)
             anim.step(t, stage, progress)
             drawEffects(cam, stage, progress, open, level, t, pal, anim)
         }
 
-        val cubeP = cam.project(V3(0f, CUBE_Y, 0f))
-        // Resultado pulsable: zona táctil sobre el cubo y rótulo.
-        if (stage == Stage.Result && cubeP != null) {
-            val tapSize = 120
-            Box(
-                Modifier
-                    .offset { IntOffset(cubeP.x.toInt() - size.width / 2, cubeP.y.toInt() - size.height / 2) }
-                    .align(Alignment.Center)
-                    .size(tapSize.dp)
-                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpen),
-            )
+        SceneOverlays(cam, size, stage, open, bubble, tapLabel, onOpen)
+    }
+}
+
+/** Resultado pulsable (zona táctil sobre el cubo + rótulo) y burbuja de la revelación, colocados con la proyección de `cam`. */
+@Composable
+private fun BoxScope.SceneOverlays(
+    cam: SceneCamera, size: IntSize, stage: Stage, open: Float, bubble: String?, tapLabel: String, onOpen: () -> Unit,
+) {
+    val pal = LocalPalette.current
+    val cubeP = cam.project(V3(0f, CUBE_Y, 0f))
+    if (stage == Stage.Result && cubeP != null) {
+        Box(
+            Modifier
+                .offset { IntOffset(cubeP.x.toInt() - size.width / 2, cubeP.y.toInt() - size.height / 2) }
+                .align(Alignment.Center)
+                .size(120.dp)
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onOpen),
+        )
+        Text(
+            tapLabel, color = pal.accent, fontSize = 13.sp, fontFamily = FontFamily.Monospace,
+            modifier = Modifier
+                .offset { IntOffset(cubeP.x.toInt() - size.width / 2, cubeP.y.toInt() - size.height / 2 + 150) }
+                .align(Alignment.Center),
+        )
+    }
+    // Burbuja de la revelación: crece al abrirse y mira siempre a la pantalla.
+    val anchor = cam.project(V3(0f, BUBBLE_Y, 0f))
+    if (bubble != null && anchor != null && open > 0.45f) {
+        val grow = ((open - 0.45f) / 0.55f).coerceIn(0f, 1f)
+        Box(
+            Modifier
+                .offset { IntOffset(anchor.x.toInt() - size.width / 2, anchor.y.toInt() - size.height / 2) }
+                .align(Alignment.Center)
+                .scale(0.4f + 0.6f * grow)
+                .alpha(grow),
+        ) {
             Text(
-                tapLabel, color = pal.accent, fontSize = 13.sp, fontFamily = FontFamily.Monospace,
+                bubble,
+                color = Color.White, fontSize = 18.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .offset { IntOffset(cubeP.x.toInt() - size.width / 2, cubeP.y.toInt() - size.height / 2 + 150) }
-                    .align(Alignment.Center),
+                    .widthIn(max = 260.dp)
+                    .background(Color(0xCC00131F), RoundedCornerShape(10.dp))
+                    .border(1.5.dp, pal.primary, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
             )
         }
-        // Burbuja de la revelación: crece al abrirse y mira siempre a la pantalla.
-        val anchor = cam.project(V3(0f, BUBBLE_Y, 0f))
-        if (bubble != null && anchor != null && open > 0.45f) {
-            val grow = ((open - 0.45f) / 0.55f).coerceIn(0f, 1f)
-            Box(
-                Modifier
-                    .offset { IntOffset(anchor.x.toInt() - size.width / 2, anchor.y.toInt() - size.height / 2) }
-                    .align(Alignment.Center)
-                    .scale(0.4f + 0.6f * grow)
-                    .alpha(grow),
-            ) {
-                Text(
-                    bubble,
-                    color = Color.White, fontSize = 18.sp, fontFamily = FontFamily.Monospace, textAlign = TextAlign.Center,
-                    modifier = Modifier
-                        .widthIn(max = 260.dp)
-                        .background(Color(0xCC00131F), RoundedCornerShape(10.dp))
-                        .border(1.5.dp, pal.primary, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                )
+    }
+}
+
+/** Dónde queda la foto en pantalla (se ve entera, centrada): escala y desplazamiento. */
+internal class PhotoGeometry(boxW: Float, boxH: Float, photoW: Int, photoH: Int) {
+    val scale = minOf(boxW / photoW, boxH / photoH)
+    val w = photoW * scale
+    val h = photoH * scale
+    val ox = (boxW - w) / 2
+    val oy = (boxH - h) / 2
+}
+
+/** Suma un desplazamiento a otra cámara (para dibujar sobre la foto, que no ocupa toda la pantalla). */
+private class OffsetCamera(private val inner: SceneCamera, private val dx: Float, private val dy: Float) : SceneCamera {
+    override val position get() = inner.position
+    override val focal get() = inner.focal
+    override fun project(p: V3): P2? = inner.project(p)?.let { P2(it.x + dx, it.y + dy, it.depth) }
+}
+
+/**
+ * Modo Foto: los mismos efectos de la escena dibujados sobre una foto de la baraja. `corners` son las 4 esquinas de la baraja en la foto
+ * (0..1, orden: arriba-izq, arriba-der, abajo-der, abajo-izq); con ellas y las medidas reales se calcula desde dónde se tomó la foto.
+ */
+@Composable
+fun PhotoScene(
+    photo: ImageBitmap, corners: List<Offset>,
+    stage: Stage, progress: Float, open: Float, level: Int,
+    bubble: String?, tapLabel: String, time: State<Float>, onOpen: () -> Unit,
+) {
+    val pal = LocalPalette.current
+    var size by remember { mutableStateOf(IntSize(1, 1)) }
+    val anim = remember { SceneAnim() }
+    val geo = PhotoGeometry(size.width.toFloat(), size.height.toFloat(), photo.width, photo.height)
+    val local = corners.map { Offset(it.x * geo.w, it.y * geo.h) }
+    val cam: SceneCamera? = PhotoCamera.fromCorners(local, DECK_W, DECK_D, geo.w, geo.h)?.let { OffsetCamera(it, geo.ox, geo.oy) }
+
+    Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
+        Canvas(Modifier.fillMaxSize()) {
+            val t = time.value
+            drawRect(Color.Black)
+            drawImage(photo, dstOffset = IntOffset(geo.ox.toInt(), geo.oy.toInt()), dstSize = IntSize(geo.w.toInt(), geo.h.toInt()))
+            anim.step(t, stage, progress)
+            if (cam != null) {
+                drawFootprint(cam, stage, pal.primary)
+                drawEffects(cam, stage, progress, open, level, t, pal, anim)
             }
         }
+        if (cam != null) SceneOverlays(cam, size, stage, open, bubble, tapLabel, onOpen)
+    }
+}
+
+/**
+ * Ajuste manual de las 4 esquinas de la baraja sobre la foto: se arrastra cada esquina. `corners` va en 0..1 sobre la foto.
+ */
+@Composable
+fun PhotoAdjust(photo: ImageBitmap, corners: List<Offset>, onChange: (List<Offset>) -> Unit) {
+    val pal = LocalPalette.current
+    var size by remember { mutableStateOf(IntSize(1, 1)) }
+    val geo = PhotoGeometry(size.width.toFloat(), size.height.toFloat(), photo.width, photo.height)
+    val current by rememberUpdatedState(corners)
+    val onChangeState by rememberUpdatedState(onChange)
+    val geoState by rememberUpdatedState(geo)
+    var active by remember { mutableStateOf(-1) }
+
+    Canvas(
+        Modifier.fillMaxSize().onSizeChanged { size = it }.pointerInput(Unit) {
+            detectDragGestures(
+                onDragStart = { pos ->
+                    val g = geoState
+                    var best = -1; var bestD = 110f
+                    current.forEachIndexed { i, c ->
+                        val d = (Offset(g.ox + c.x * g.w, g.oy + c.y * g.h) - pos).getDistance()
+                        if (d < bestD) { bestD = d; best = i }
+                    }
+                    active = best
+                },
+                onDragEnd = { active = -1 },
+                onDragCancel = { active = -1 },
+            ) { pointer, drag ->
+                val i = active
+                if (i >= 0) {
+                    val g = geoState
+                    val c = current[i]
+                    val moved = Offset((c.x + drag.x / g.w).coerceIn(0f, 1f), (c.y + drag.y / g.h).coerceIn(0f, 1f))
+                    pointer.consume()
+                    val list = current.toMutableList(); list[i] = moved
+                    onChangeState(list)
+                }
+            }
+        },
+    ) {
+        drawRect(Color.Black)
+        drawImage(photo, dstOffset = IntOffset(geo.ox.toInt(), geo.oy.toInt()), dstSize = IntSize(geo.w.toInt(), geo.h.toInt()))
+        val pts = corners.map { Offset(geo.ox + it.x * geo.w, geo.oy + it.y * geo.h) }
+        val path = Path().apply {
+            moveTo(pts[0].x, pts[0].y); for (i in 1 until 4) lineTo(pts[i].x, pts[i].y); close()
+        }
+        drawPath(path, pal.primary.copy(alpha = 0.12f))
+        drawPath(path, pal.primary, style = Stroke(3f))
+        pts.forEachIndexed { i, p ->
+            drawCircle(if (i == active) pal.accent else pal.primary, 22f, p, style = Stroke(4f))
+            drawCircle((if (i == active) pal.accent else pal.primary).copy(alpha = 0.25f), 22f, p)
+        }
+        // Marca la esquina «arriba-izquierda» (el lado corto de arriba) para saber cómo está girada la selección.
+        drawCircle(pal.accent, 7f, pts[0])
     }
 }
 
 // ---------- Dibujo ----------
 
-private fun DrawScope.line(cam: OrbitCamera, a: V3, b: V3, color: Color, width: Float) {
+private fun DrawScope.line(cam: SceneCamera, a: V3, b: V3, color: Color, width: Float) {
     val pa = cam.project(a) ?: return
     val pb = cam.project(b) ?: return
     drawLine(color, Offset(pa.x, pa.y), Offset(pb.x, pb.y), width, StrokeCap.Round)
 }
 
-private fun DrawScope.quad(cam: OrbitCamera, pts: List<V3>, fill: Color?, stroke: Color? = null, w: Float = 1.5f) {
+private fun DrawScope.quad(cam: SceneCamera, pts: List<V3>, fill: Color?, stroke: Color? = null, w: Float = 1.5f) {
     val ps = pts.map { cam.project(it) ?: return }
     val path = Path().apply {
         moveTo(ps[0].x, ps[0].y)
@@ -194,7 +312,7 @@ private fun DrawScope.quad(cam: OrbitCamera, pts: List<V3>, fill: Color?, stroke
     if (stroke != null) drawPath(path, stroke, style = Stroke(w))
 }
 
-private fun DrawScope.drawTable(cam: OrbitCamera, grid: Color) {
+private fun DrawScope.drawTable(cam: SceneCamera, grid: Color) {
     val s = 70f
     quad(cam, listOf(V3(-s, 0f, -s), V3(s, 0f, -s), V3(s, 0f, s), V3(-s, 0f, s)), Color(0xFF0A1B26))
     var g = -40f
@@ -206,14 +324,14 @@ private fun DrawScope.drawTable(cam: OrbitCamera, grid: Color) {
     }
 }
 
-private fun DrawScope.drawFootprint(cam: OrbitCamera, stage: Stage, c: Color) {
+private fun DrawScope.drawFootprint(cam: SceneCamera, stage: Stage, c: Color) {
     val m = 1.2f
     val a = if (stage == Stage.Connecting) 0.1f else 0.2f
     val w = DECK_W / 2 + m; val d = DECK_D / 2 + m
     quad(cam, listOf(V3(-w, 0.05f, -d), V3(w, 0.05f, -d), V3(w, 0.05f, d), V3(-w, 0.05f, d)), c.copy(alpha = a), c.copy(alpha = 0.8f))
 }
 
-private fun DrawScope.drawDeck(cam: OrbitCamera) {
+private fun DrawScope.drawDeck(cam: SceneCamera, back: ImageBitmap?) {
     val w = DECK_W / 2; val d = DECK_D / 2; val h = DECK_H
     val sides = listOf(
         listOf(V3(-w, 0f, d), V3(w, 0f, d), V3(w, h, d), V3(-w, h, d)),
@@ -230,14 +348,27 @@ private fun DrawScope.drawDeck(cam: OrbitCamera) {
         val shade = 0.78f + 0.2f * abs(n.x)
         quad(cam, face, Color(0.93f * shade, 0.91f * shade, 0.85f * shade), Color(0xFF9A9684), 1f)
     }
-    quad(cam, listOf(V3(-w, h, -d), V3(w, h, -d), V3(w, h, d), V3(-w, h, d)), Color(0xFF7A1020), Color(0xFFEDE8DA), 2f)
+    val top = listOf(V3(-w, h, -d), V3(w, h, -d), V3(w, h, d), V3(-w, h, d))
+    if (back != null) {
+        // Dorso con la foto del usuario: se deforma la imagen (perspectiva) sobre la cara superior.
+        val ps = top.map { cam.project(it) }
+        if (ps.all { it != null }) {
+            val dst = ps.map { Offset(it!!.x, it.y) }
+            val bw = back.width.toFloat(); val bh = back.height.toFloat()
+            val hom = homography(listOf(Offset(0f, 0f), Offset(bw, 0f), Offset(bw, bh), Offset(0f, bh)), dst)
+            if (hom != null) withTransform({ transform(homographyToMatrix(hom)) }) { drawImage(back) }
+            quad(cam, top, null, Color(0xFFEDE8DA), 2f)
+            return
+        }
+    }
+    quad(cam, top, Color(0xFF7A1020), Color(0xFFEDE8DA), 2f)
     val i = 0.55f
     quad(cam, listOf(V3(-w + i, h, -d + i), V3(w - i, h, -d + i), V3(w - i, h, d - i), V3(-w + i, h, d - i)), null, Color(0xFFE6B3BC), 1f)
     quad(cam, listOf(V3(0f, h, -d + 1.2f), V3(w - 1.2f, h, 0f), V3(0f, h, d - 1.2f), V3(-w + 1.2f, h, 0f)), null, Color(0xFFE6B3BC), 1f)
 }
 
 /** Arco horizontal (plano XZ) a altura `y`. */
-private fun DrawScope.drawRing(cam: OrbitCamera, r: Float, y: Float, startDeg: Float, sweepDeg: Float, color: Color, width: Float,
+private fun DrawScope.drawRing(cam: SceneCamera, r: Float, y: Float, startDeg: Float, sweepDeg: Float, color: Color, width: Float,
                                cx: Float = 0f, cz: Float = 0f) {
     val steps = maxOf(6, (sweepDeg / 6f).toInt())
     var prev: P2? = null
@@ -249,7 +380,7 @@ private fun DrawScope.drawRing(cam: OrbitCamera, r: Float, y: Float, startDeg: F
     }
 }
 
-private fun DrawScope.drawEffects(cam: OrbitCamera, stage: Stage, progress: Float, open: Float, level: Int, t: Float, pal: Palette,
+private fun DrawScope.drawEffects(cam: SceneCamera, stage: Stage, progress: Float, open: Float, level: Int, t: Float, pal: Palette,
                                   anim: SceneAnim) {
     val ph = anim.clock.phase // tiempo «acelerado» acumulado: la velocidad cambia con suavidad
     val p = pal.primary; val s = pal.secondary; val a = pal.accent

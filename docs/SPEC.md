@@ -124,6 +124,10 @@ Riesgo: un mazo sostenido en la mano no da plano; se comparará en el prototipo.
 - **Pendiente:** foto del dorso de la baraja 3D (§12.1), selector de dorsos, elegir voz concreta, guion (§12.2).
 
 ## 12. Líneas de análisis (features propuestas, sin comprometer)
+> **Estado (2026-11-12):** §12.1 (modo Foto + foto del dorso) y el reconocimiento de voz de §12.2 están **implementados**; lo de iOS (Swift: `Camera.swift`,
+> `Listen.swift`) no se ha podido compilar ni probar todavía. Android probado en el emulador (cámara virtual): foto del dorso, modo Foto y flujo completo.
+> El reconocimiento de voz solo se ha comprobado que arranca sin errores; falta probarlo con voz real en un dispositivo.
+
 ### 12.1 Modo «Foto» (cuarto modo) — viable
 El HUD pide **una foto de la baraja sobre la mesa** (desde arriba o en 3/4); se detecta la baraja en la foto y los efectos se dibujan sobre ella
 como si fuera la escena; después sigue el flujo normal por fases.
