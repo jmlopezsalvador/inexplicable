@@ -173,10 +173,16 @@ object PhraseMatcher {
  * Decide qué hacer con una frase oída. `greeted` indica si ya hubo saludo. Devuelve la acción a ejecutar o null si no encaja
  * con lo que se espera ahora.
  */
-fun hear(book: ScriptBook, stage: Stage, greeted: Boolean, heard: String, requireWake: Boolean = false, threshold: Double = 0.8): ScriptAction? {
+fun hear(
+    book: ScriptBook, stage: Stage, greeted: Boolean, heard: String,
+    requireWake: Boolean = false, threshold: Double = 0.8, partial: Boolean = false,
+): ScriptAction? {
     val action = expectedAction(stage, greeted) ?: return null
     val line = book.line(action)
     // El saludo ya lleva la palabra de activación dentro de la frase; para el resto se exige solo si se pide.
     val wake = if (requireWake && action != ScriptAction.Greet) book.wake else null
-    return if (PhraseMatcher.matches(heard, line.phrases, threshold, wake)) action else null
+    // Con texto aún a medias solo se aceptan frases de dos o más palabras: «sigue» no debe dispararse con la primera palabra de otra frase.
+    val phrases = if (partial) line.phrases.filter { PhraseMatcher.normalize(it).split(' ').size >= 2 } else line.phrases
+    if (phrases.isEmpty()) return null
+    return if (PhraseMatcher.matches(heard, phrases, threshold, wake)) action else null
 }

@@ -87,6 +87,13 @@ class ConversationTest {
         assertEquals(ScriptAction.Analyze, hear(book, Stage.Ready, true, "Inicia el análisis"))
     }
 
+    @Test fun partialTextOnlyUsesMultiWordPhrases() {
+        assertEquals(ScriptAction.Analyze, hear(es, Stage.Ready, true, "venga analiza la baraja", partial = true))
+        // «sigue» es una frase de una sola palabra: con el texto a medias no cuenta, con la frase completa sí.
+        assertNull(hear(es, Stage.Revealed, true, "sigue", partial = true))
+        assertEquals(ScriptAction.Continue, hear(es, Stage.Revealed, true, "sigue", partial = false))
+    }
+
     @Test fun englishBookWorks() {
         val en = ScriptBooks.forLanguage("en")
         assertEquals(ScriptAction.Analyze, hear(en, Stage.Ready, true, "yes please analyze the deck"))

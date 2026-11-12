@@ -250,23 +250,27 @@ private class AndroidListener(private val ctx: Context) : Listener {
     var askPermission: (() -> Unit)? = null
     private var recognizer: SpeechRecognizer? = null
     private var active = false
+    private var paused = false
     private var pendingStart = false
     private var lang = "es"
     private var onHeard: ((String) -> Unit)? = null
+    private var onPartial: ((String) -> Unit)? = null
 
     private fun hasPermission() = ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
-    override fun start(lang: String, onHeard: (String) -> Unit) {
+    override fun start(lang: String, onHeard: (String) -> Unit, onPartial: (String) -> Unit) {
         this.lang = lang
         this.onHeard = onHeard
+        this.onPartial = onPartial
         if (active) return
         if (!hasPermission()) { pendingStart = true; askPermission?.invoke(); return }
         active = true
+        paused = false
         listenOnce()
     }
 
     fun onPermissionGranted() {
-        if (pendingStart) { pendingStart = false; start(lang, onHeard ?: return) }
+        if (pendingStart) { pendingStart = false; start(lang, onHeard ?: return, onPartial ?: return) }
     }
 
     private val listener = object : RecognitionListener {
@@ -275,12 +279,19 @@ private class AndroidListener(private val ctx: Context) : Listener {
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() {}
-        override fun onPartialResults(partialResults: Bundle?) {}
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
+        override fun onPartialResults(partialResults: Bundle?) {
+            if (paused) return
+            val text = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+            if (!text.isNullOrBlank()) onPartial?.invoke(text)
+        }
+
         override fun onResults(results: Bundle?) {
-            val best = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
-            if (!best.isNullOrBlank()) onHeard?.invoke(best)
+            if (!paused) {
+                val best = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
+                if (!best.isNullOrBlank()) onHeard?.invoke(best)
+            }
             restart(200)
         }
 
@@ -294,11 +305,11 @@ private class AndroidListener(private val ctx: Context) : Listener {
     }
 
     private fun restart(delayMs: Long) {
-        mainHandler.postDelayed({ if (active) listenOnce() }, delayMs)
+        mainHandler.postDelayed({ if (active && !paused) listenOnce() }, delayMs)
     }
 
     private fun listenOnce() {
-        if (!active) return
+        if (!active || paused) return
         if (!SpeechRecognizer.isRecognitionAvailable(ctx)) { active = false; return }
         try {
             val rec = recognizer ?: SpeechRecognizer.createSpeechRecognizer(ctx).also {
@@ -307,7 +318,7 @@ private class AndroidListener(private val ctx: Context) : Listener {
             val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false)
+                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, ctx.packageName)
             }
@@ -317,8 +328,27 @@ private class AndroidListener(private val ctx: Context) : Listener {
         }
     }
 
+    override fun pause() {
+        if (!active || paused) return
+        paused = true
+        try { recognizer?.cancel() } catch (_: Exception) {}
+    }
+
+    override fun resume() {
+        if (!active || !paused) return
+        paused = false
+        listenOnce()
+    }
+
+    override fun reset() {
+        if (!active || paused) return
+        try { recognizer?.cancel() } catch (_: Exception) {}
+        restart(150)
+    }
+
     override fun stop() {
         active = false
+        paused = false
         pendingStart = false
         try { recognizer?.cancel() } catch (_: Exception) {}
     }

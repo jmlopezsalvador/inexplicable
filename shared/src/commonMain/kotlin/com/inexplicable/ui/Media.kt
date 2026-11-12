@@ -32,13 +32,22 @@ expect fun CameraCapture(frameAspect: Float, cropToFrame: Boolean, hint: String,
 expect fun GalleryPicker(onResult: (ByteArray?) -> Unit)
 
 /**
- * Escucha continua del micrófono con reconocimiento de voz del sistema. `onHeard` recibe frases completas (cuando el hablante hace una pausa).
- * Android: `SpeechRecognizer`. iOS: `SFSpeechRecognizer` desde Swift (`ListenBridge`). Hay que parar la escucha mientras la app habla.
+ * Escucha continua del micrófono con reconocimiento de voz del sistema.
+ * - `onPartial` recibe el texto mientras se está diciendo (se va completando): permite reaccionar sin esperar al silencio.
+ * - `onHeard` recibe la frase ya completa (cuando el hablante hace una pausa).
+ * Android: `SpeechRecognizer`. iOS: `SFSpeechRecognizer` desde Swift (`ListenBridge`).
+ * Mientras la app habla hay que **pausar** la escucha: así el micrófono se apaga de verdad (la luz del sistema desaparece) y el reconocedor no
+ * transcribe la voz de la propia app.
  */
 interface Listener {
     /** Empieza (o reanuda) a escuchar en `lang`. Pide permisos si faltan. */
-    fun start(lang: String, onHeard: (String) -> Unit)
+    fun start(lang: String, onHeard: (String) -> Unit, onPartial: (String) -> Unit)
     fun stop()
+    /** Apaga el micrófono sin cerrar la sesión de escucha (se reanuda con `resume`). */
+    fun pause()
+    fun resume()
+    /** Descarta lo que lleva reconocido y empieza una frase nueva (por ejemplo, tras haber actuado con una frase parcial). */
+    fun reset()
     fun release()
 }
 

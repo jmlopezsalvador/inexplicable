@@ -2,14 +2,17 @@ import Speech
 import AVFoundation
 import Shared
 
-// Reconocimiento de voz continuo para el control por conversación. Kotlin manda «start»/«stop» por `IosListenHooks` y esta clase
-// devuelve cada frase completa (cuando el hablante hace una pausa) con `IosListenHooks.deliver`.
-// Limitaciones: el reconocedor de Apple corta cada petición a ~1 min, así que se reinicia tras cada frase; el micrófono abierto muestra
-// el indicador de iOS; el audio de la propia app (voz de Jarvis) lo filtra Kotlin ignorando lo oído mientras la app habla.
+// Reconocimiento de voz continuo para el control por conversación. Kotlin manda órdenes de texto por `IosListenHooks` («start», «stop»,
+// «pause», «resume», «reset») y esta clase devuelve el texto a medias con `deliverPartial` y cada frase completa con `deliver`.
 //
-// Robustez: el motor de audio se crea solo al empezar a escuchar y se descarta al parar (no se toca `inputNode` si no se está escuchando),
-// y antes de instalar el «tap» se comprueba que el formato del micrófono sea válido. Un formato inválido (p. ej. justo al cambiar la sesión
-// de audio) lanza una excepción de Objective-C que Swift no puede capturar y cierra la app.
+// Diseño:
+// - El motor de audio (micrófono) se mantiene abierto mientras se escucha y solo se renuevan la petición y la tarea de reconocimiento entre
+//   frases: así no se pierde audio al reiniciar (antes había un hueco y por eso a veces había que repetir).
+// - «pause» apaga el micrófono de verdad (la luz del sistema desaparece) y «resume» lo vuelve a encender. Kotlin pausa mientras la app habla,
+//   para que el reconocedor no transcriba la voz de la propia app.
+// - Cada texto parcial se entrega enseguida; la frase se da por completa tras 1,2 s de silencio.
+// - Robustez: el motor se crea solo al empezar, nunca se toca `inputNode` sin escuchar y antes de instalar el «tap» se comprueba que el
+//   formato del micrófono sea válido (un formato inválido lanza una excepción de Objective-C que cierra la app).
 
 final class SpeechListener {
     private var engine: AVAudioEngine?
@@ -17,6 +20,7 @@ final class SpeechListener {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var active = false
+    private var paused = false
     private var lang = "es"
     private var lastText = ""
     private var silenceTimer: Timer?
@@ -48,72 +52,32 @@ final class SpeechListener {
         }
         AppAudio.recording = true
         active = true
-        startTask()
+        paused = false
+        if startEngine() { startTask() } else { stop() }
     }
 
-    private func startTask() {
-        guard active else { return }
-        generation += 1
-        let gen = generation
-        let rec = SFSpeechRecognizer(locale: Locale(identifier: lang == "en" ? "en-US" : "es-ES"))
-        recognizer = rec
-        guard let recognizer = rec, recognizer.isAvailable else { stop(); return }
-
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
+    /// Enciende el micrófono. Devuelve false si no hay un micrófono utilizable.
+    private func startEngine() -> Bool {
+        if engine != nil { return true }
+        let newEngine = AVAudioEngine()
+        let input = newEngine.inputNode
         let format = input.outputFormat(forBus: 0)
         // Sin micrófono utilizable (formato a 0 Hz o sin canales) no se instala nada: evita la excepción.
-        guard format.sampleRate > 0, format.channelCount > 0 else { stop(); return }
-
-        let req = SFSpeechAudioBufferRecognitionRequest()
-        req.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
-        request = req
-
+        guard format.sampleRate > 0, format.channelCount > 0 else { return false }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            self?.request?.append(buffer)
+            self?.request?.append(buffer)   // la petición actual (puede cambiar entre frases sin tocar el motor)
         }
-        engine.prepare()
-        do { try engine.start() } catch {
+        newEngine.prepare()
+        do { try newEngine.start() } catch {
             input.removeTap(onBus: 0)
-            stop()
-            return
+            return false
         }
-        self.engine = engine
-
-        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self = self, self.generation == gen else { return }
-                if let r = result { self.onPartial(r.bestTranscription.formattedString) }
-                if error != nil || (result?.isFinal ?? false) { self.flush() }
-            }
-        }
+        engine = newEngine
+        return true
     }
 
-    /// Cada texto parcial reinicia un temporizador de silencio; al cumplirse, la frase se da por terminada.
-    private func onPartial(_ text: String) {
-        lastText = text
-        silenceTimer?.invalidate()
-        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in self?.flush() }
-    }
-
-    private func flush() {
-        silenceTimer?.invalidate()
-        let text = lastText.trimmingCharacters(in: .whitespacesAndNewlines)
-        lastText = ""
-        if !text.isEmpty { IosListenHooks.shared.deliver(text: text) }
-        teardown()
-        guard active else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            if self?.active == true { self?.startTask() }
-        }
-    }
-
-    /// Para el motor y la petición actuales (sin tocar nada si no había).
-    private func teardown() {
-        generation += 1
-        task?.cancel(); task = nil
-        request?.endAudio(); request = nil
+    /// Apaga el micrófono.
+    private func stopEngine() {
         if let engine = engine {
             if engine.isRunning { engine.stop() }
             engine.inputNode.removeTap(onBus: 0)
@@ -121,12 +85,86 @@ final class SpeechListener {
         engine = nil
     }
 
+    /// Empieza una petición de reconocimiento nueva (el micrófono ya debe estar encendido).
+    private func startTask() {
+        guard active, !paused, engine != nil else { return }
+        generation += 1
+        let gen = generation
+        if recognizer == nil {
+            recognizer = SFSpeechRecognizer(locale: Locale(identifier: lang == "en" ? "en-US" : "es-ES"))
+        }
+        guard let recognizer = recognizer, recognizer.isAvailable else { stop(); return }
+
+        let req = SFSpeechAudioBufferRecognitionRequest()
+        req.shouldReportPartialResults = true
+        if recognizer.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        request = req
+
+        task = recognizer.recognitionTask(with: req) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self = self, self.generation == gen else { return }
+                if let r = result { self.onPartial(r.bestTranscription.formattedString) }
+                if error != nil || (result?.isFinal ?? false) { self.finishPhrase() }
+            }
+        }
+    }
+
+    /// Cierra la petición actual (sin tocar el micrófono).
+    private func stopTask() {
+        generation += 1
+        silenceTimer?.invalidate()
+        task?.cancel(); task = nil
+        request?.endAudio(); request = nil
+        lastText = ""
+    }
+
+    /// Cada texto parcial se entrega enseguida y reinicia un temporizador de silencio; al cumplirse, la frase se da por completa.
+    private func onPartial(_ text: String) {
+        lastText = text
+        IosListenHooks.shared.deliverPartial(text: text)
+        silenceTimer?.invalidate()
+        silenceTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { [weak self] _ in self?.finishPhrase() }
+    }
+
+    /// La frase terminó: se entrega completa y se prepara una petición nueva, con el micrófono siempre encendido.
+    private func finishPhrase() {
+        let text = lastText.trimmingCharacters(in: .whitespacesAndNewlines)
+        stopTask()
+        if !text.isEmpty { IosListenHooks.shared.deliver(text: text) }
+        guard active, !paused else { return }
+        startTask()
+    }
+
+    // MARK: Órdenes de Kotlin
+
+    /// Apaga el micrófono sin cerrar la escucha (Kotlin lo usa mientras la app habla).
+    func pause() {
+        guard active, !paused else { return }
+        paused = true
+        stopTask()
+        stopEngine()
+    }
+
+    func resume() {
+        guard active, paused else { return }
+        paused = false
+        if startEngine() { startTask() } else { stop() }
+    }
+
+    /// Descarta lo reconocido y empieza una frase nueva (Kotlin lo usa tras actuar con una frase parcial).
+    func reset() {
+        guard active, !paused else { return }
+        stopTask()
+        startTask()
+    }
+
     func stop() {
         let wasActive = active
         active = false
-        silenceTimer?.invalidate()
-        lastText = ""
-        teardown()
+        paused = false
+        stopTask()
+        stopEngine()
+        recognizer = nil
         if wasActive {
             AppAudio.recording = false
             AppAudio.playback() // vuelve a la sesión de solo reproducción
@@ -145,8 +183,14 @@ enum ListenBridge {
     }
 
     private static func handle(_ cmd: String) {
-        if cmd == "stop" { listener.stop(); return }
-        let p = cmd.components(separatedBy: "\u{1F}")
-        if p.count >= 2, p[0] == "start" { listener.start(lang: p[1]) }
+        switch cmd {
+        case "stop": listener.stop()
+        case "pause": listener.pause()
+        case "resume": listener.resume()
+        case "reset": listener.reset()
+        default:
+            let p = cmd.components(separatedBy: "\u{1F}")
+            if p.count >= 2, p[0] == "start" { listener.start(lang: p[1]) }
+        }
     }
 }

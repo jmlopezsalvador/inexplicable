@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
@@ -55,7 +56,9 @@ import com.inexplicable.script.ScriptBooks
 import com.inexplicable.script.customized
 import com.inexplicable.script.expectedAction
 import com.inexplicable.script.hear
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.datetime.Clock
 
@@ -209,8 +212,21 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     val speaker = rememberSpeaker()
     // Mientras la app habla se ignora lo que oiga el micrófono (si no, se oiría a sí misma). La duración es una estimación.
     val mutedUntil = remember { LongArray(1) }
+    val listener = rememberListener()
+    val scope = rememberCoroutineScope()
+    val resumeJob = remember { arrayOfNulls<Job>(1) }
+    /** Reanuda el micrófono pasado `ms` (cancela cualquier reanudación anterior pendiente). */
+    fun resumeListeningIn(ms: Long) {
+        resumeJob[0]?.cancel()
+        resumeJob[0] = scope.launch { delay(ms); listener.resume() }
+    }
     fun say(text: String, rate: Float, pitch: Float) {
-        mutedUntil[0] = nowMs() + text.length * 80L + 900L
+        val estimate = (text.length * 80L / rate.coerceAtLeast(0.5f)).toLong() + 900L
+        mutedUntil[0] = nowMs() + estimate
+        // Mientras la app habla el micrófono se apaga (si no, el reconocedor transcribe su propia voz). Por si faltara el aviso de que terminó,
+        // se reanuda solo pasado el tiempo estimado más un margen.
+        listener.pause()
+        resumeListeningIn(estimate + 2500L)
         speaker.speak(text, lang, rate, pitch)
     }
     // Reacción visual a la voz. Los eventos reales de la voz también afinan el silenciado del micrófono:
@@ -221,8 +237,8 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         speaker.onEvent = { e ->
             speech.onEvent(e, time.value)
             when (e) {
-                SpeechEvent.Start -> mutedUntil[0] = nowMs() + 60_000L
-                SpeechEvent.End -> mutedUntil[0] = nowMs() + 500L
+                SpeechEvent.Start -> { mutedUntil[0] = nowMs() + 8_000L; listener.pause() }
+                SpeechEvent.End -> { mutedUntil[0] = nowMs() + 400L; resumeListeningIn(450L) }
                 SpeechEvent.Word -> {}
             }
         }
@@ -276,22 +292,29 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
     fun openResult() { if (scriptMode) perform(ScriptAction.Open) else { engine.revealed(); sync() } }
 
     // Escucha por voz (solo con el control por conversación): lo oído solo cuenta si encaja con la orden que toca ahora.
-    val listener = rememberListener()
     var heard by remember { mutableStateOf("") }
-    val onHeard: (String) -> Unit = handler@{ text ->
+    val gate = remember { LongArray(1) } // hasta cuándo se ignora lo oído tras haber actuado (la misma frase llega varias veces: parcial y final)
+    /** Decide qué hacer con lo oído; `partial` = texto aún a medias (solo frases de 2+ palabras, para reaccionar sin esperar al silencio). */
+    fun handleHeard(text: String, partial: Boolean) {
         heard = text
-        if (nowMs() < mutedUntil[0]) return@handler // la app está hablando
-        val action = hear(book, state.stage, greeted, text, settings.wakeRequired, settings.matchPct / 100.0)
-        if (action != null) perform(action)
+        val now = nowMs()
+        if (now < mutedUntil[0] || now < gate[0]) return // la app habla, o acaba de actuar con esta misma frase
+        val action = hear(book, state.stage, greeted, text, settings.wakeRequired, settings.matchPct / 100.0, partial) ?: return
+        gate[0] = now + 1200L
+        perform(action)
+        listener.reset() // empieza una frase nueva: lo ya reconocido no debe volver a contar
     }
+    val onHeard: (String) -> Unit = { handleHeard(it, false) }
+    val onPartialHeard: (String) -> Unit = { handleHeard(it, true) }
     val onHeardState by rememberUpdatedState(onHeard)
+    val onPartialState by rememberUpdatedState(onPartialHeard)
     LaunchedEffect(started, scriptMode, settings.voiceListen, lang) {
         if (started && scriptMode && settings.voiceListen) {
             // Marca de seguridad: si la app se cierra de golpe mientras se escucha (p. ej. al conceder el permiso), la marca queda puesta y
             // al volver a abrirla la escucha se desactiva sola. Al salir con normalidad la marca se borra.
             store.setListenGuard(true)
             try {
-                listener.start(lang) { onHeardState(it) }
+                listener.start(lang, { onHeardState(it) }, { onPartialState(it) })
                 awaitCancellation()
             } finally {
                 store.setListenGuard(false)

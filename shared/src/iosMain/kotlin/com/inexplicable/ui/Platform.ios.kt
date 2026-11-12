@@ -88,27 +88,34 @@ actual fun GalleryPicker(onResult: (ByteArray?) -> Unit) {
 }
 
 /**
- * Puente con el reconocimiento de voz de Swift (`ListenBridge`): órdenes «start» (con el idioma) y «stop»; Swift devuelve cada frase
- * con `deliver`.
+ * Puente con el reconocimiento de voz de Swift (`ListenBridge`): órdenes «start» (con el idioma), «stop», «pause», «resume» y «reset».
+ * Swift devuelve el texto a medias con `deliverPartial` y cada frase completa con `deliver`.
  */
 object IosListenHooks {
     var handler: ((String) -> Unit)? = null
     private var callback: ((String) -> Unit)? = null
+    private var partialCallback: ((String) -> Unit)? = null
 
-    fun start(lang: String, cb: (String) -> Unit) {
+    fun start(lang: String, cb: (String) -> Unit, partialCb: (String) -> Unit) {
         callback = cb
-        handler?.invoke("start\u001F$lang")
+        partialCallback = partialCb
+        handler?.invoke("start$lang")
     }
 
-    fun stop() { handler?.invoke("stop") }
+    fun command(name: String) { handler?.invoke(name) }
 
     fun deliver(text: String) { callback?.invoke(text) }
+
+    fun deliverPartial(text: String) { partialCallback?.invoke(text) }
 }
 
 private class IosListener : Listener {
-    override fun start(lang: String, onHeard: (String) -> Unit) = IosListenHooks.start(lang, onHeard)
-    override fun stop() = IosListenHooks.stop()
-    override fun release() = IosListenHooks.stop()
+    override fun start(lang: String, onHeard: (String) -> Unit, onPartial: (String) -> Unit) = IosListenHooks.start(lang, onHeard, onPartial)
+    override fun stop() = IosListenHooks.command("stop")
+    override fun pause() = IosListenHooks.command("pause")
+    override fun resume() = IosListenHooks.command("resume")
+    override fun reset() = IosListenHooks.command("reset")
+    override fun release() = IosListenHooks.command("stop")
 }
 
 @Composable
