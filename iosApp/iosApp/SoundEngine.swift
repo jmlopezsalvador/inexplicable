@@ -93,7 +93,10 @@ final class SoundSynth {
     }
 
     func start() {
-        if started { engine.prepare(); try? engine.start(); return }
+        if started {
+            if node != nil { engine.prepare(); _ = try? engine.start() }
+            return
+        }
         started = true
         // Si el sistema cambia la configuración de audio (p. ej. al empezar a grabar con el micrófono), se vuelve a arrancar el motor.
         NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
@@ -121,9 +124,12 @@ final class SoundSynth {
         try? engine.start()
     }
 
-    func pause() { engine.pause() }
-    func resume() { try? engine.start() }
-    func stop() { engine.stop() }
+    // Pausar, reanudar o parar solo tiene sentido con el sonido ya montado (`node` conectado). Arrancar un `AVAudioEngine` sin nada conectado
+    // lanza una excepción de Objective-C que Swift no puede capturar y cierra la app (ocurría al volver la app a primer plano antes de
+    // haber sonado nada).
+    func pause() { if node != nil { engine.pause() } }
+    func resume() { if node != nil { _ = try? engine.start() } }
+    func stop() { if node != nil { engine.stop() } }
 }
 
 /// Voz del sistema (TTS). Kotlin manda «speak» (idioma, velocidad, tono y texto separados por U+001F) o «stop» por `IosSpeechHooks`.
