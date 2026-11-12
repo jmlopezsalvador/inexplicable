@@ -115,8 +115,33 @@ final class SoundSynth {
 }
 
 /// Voz del sistema (TTS). Kotlin manda «speak» (idioma, velocidad, tono y texto separados por U+001F) o «stop» por `IosSpeechHooks`.
+/// Avisa de lo que hace la voz (empieza, cada palabra, termina) para que los efectos reaccionen.
+private final class SpeechDelegate: NSObject, AVSpeechSynthesizerDelegate {
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) { SpeechBridge.emit("start") }
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) { SpeechBridge.emit("end") }
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) { SpeechBridge.emit("end") }
+    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, willSpeakRangeOfSpeechString characterRange: NSRange,
+                           utterance: AVSpeechUtterance) { SpeechBridge.emit("word") }
+}
+
 enum SpeechBridge {
-    private static let synth = AVSpeechSynthesizer()
+    private static let delegate = SpeechDelegate()
+    private static let synth: AVSpeechSynthesizer = {
+        let s = AVSpeechSynthesizer()
+        s.delegate = delegate
+        return s
+    }()
+
+    /// La RA nativa se suscribe aquí para reaccionar a la voz con sus efectos 3D.
+    static var onEvent: ((String) -> Void)?
+
+    /// Reparte el evento a Kotlin (HUD, escenas 3D) y a Swift (RA).
+    static func emit(_ event: String) {
+        DispatchQueue.main.async {
+            IosSpeechHooks.shared.deliver(event: event)
+            onEvent?(event)
+        }
+    }
 
     static func install() {
         IosSpeechHooks.shared.handler = { cmd in

@@ -1,7 +1,10 @@
 package com.inexplicable.ui
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -15,6 +18,25 @@ private class AndroidSpeaker(context: Context) : Speaker {
     private var ready = false
     private var pending: Request? = null
     private var counter = 0
+    private var progressSet = false
+    private val main = Handler(Looper.getMainLooper())
+    override var onEvent: ((SpeechEvent) -> Unit)? = null
+
+    private fun emit(e: SpeechEvent) { main.post { onEvent?.invoke(e) } }
+
+    /** Los avisos de la voz llegan en otro hilo: se pasan al principal. */
+    private fun installProgress(t: TextToSpeech) {
+        if (progressSet) return
+        progressSet = true
+        t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) = emit(SpeechEvent.Start)
+            override fun onDone(utteranceId: String?) = emit(SpeechEvent.End)
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) = emit(SpeechEvent.End)
+            override fun onStop(utteranceId: String?, interrupted: Boolean) = emit(SpeechEvent.End)
+            override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) = emit(SpeechEvent.Word)
+        })
+    }
 
     init {
         tts = try {
@@ -29,6 +51,7 @@ private class AndroidSpeaker(context: Context) : Speaker {
 
     private fun say(r: Request) {
         val t = tts ?: return
+        installProgress(t)
         t.language = Locale(r.lang)
         t.setSpeechRate(r.rate.coerceIn(0.3f, 3f))
         t.setPitch(r.pitch.coerceIn(0.3f, 3f))

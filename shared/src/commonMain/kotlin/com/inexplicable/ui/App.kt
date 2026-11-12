@@ -190,6 +190,20 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
         mutedUntil[0] = nowMs() + text.length * 80L + 900L
         speaker.speak(text, lang, rate, pitch)
     }
+    // Reacción visual a la voz. Los eventos reales de la voz también afinan el silenciado del micrófono:
+    // mientras suena no se oye nada y, al terminar, se deja un margen corto por el eco.
+    val speech = remember { SpeechFeedback() }
+    speech.gain = if (settings.speechFx) settings.speechFxPct / 100f else 0f
+    LaunchedEffect(speaker) {
+        speaker.onEvent = { e ->
+            speech.onEvent(e, time.value)
+            when (e) {
+                SpeechEvent.Start -> mutedUntil[0] = nowMs() + 60_000L
+                SpeechEvent.End -> mutedUntil[0] = nowMs() + 500L
+                SpeechEvent.Word -> {}
+            }
+        }
+    }
     LaunchedEffect(state, started, settings) {
         if (!started || !settings.voiceOn) { speaker.stop(); return@LaunchedEffect }
         val rate = settings.voiceRate / 100f
@@ -291,17 +305,17 @@ fun InexplicableRoot(store: SettingsStore, onStartAR: (() -> Unit)? = null) {
                 DeckScene(
                     stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
                     bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
-                    tapLabel = texts.tapToReveal, time = time, onOpen = ::openResult, backImage = backImage,
+                    tapLabel = texts.tapToReveal, time = time, speech = speech, onOpen = ::openResult, backImage = backImage,
                 )
             } else if (photoShown && photo != null) {
                 PhotoScene(
                     photo = photo, corners = corners,
                     stage = state.stage, progress = progress.value, open = open.value, level = settings.hudLevel,
                     bubble = if (state.stage == Stage.Revealed) typed(shownPhase, state) else null,
-                    tapLabel = texts.tapToReveal, time = time, onOpen = ::openResult,
+                    tapLabel = texts.tapToReveal, time = time, speech = speech, onOpen = ::openResult,
                 )
             } else {
-                HudCanvas(if (started) state.stage else Stage.Ready, progress.value, open.value, settings.hudLevel, time)
+                HudCanvas(if (started) state.stage else Stage.Ready, progress.value, open.value, settings.hudLevel, time, speech)
                 // El sello de resultado del HUD se pulsa en la zona central.
                 if (started && state.stage == Stage.Result) {
                     Box(

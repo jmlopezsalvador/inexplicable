@@ -121,14 +121,31 @@ actual fun createSoundEngine(): SoundEngine = IosSoundEngine()
  */
 object IosSpeechHooks {
     var handler: ((String) -> Unit)? = null
+    private val sinks = mutableListOf<(String) -> Unit>()
+
+    fun addSink(s: (String) -> Unit) { sinks.add(s) }
+    fun removeSink(s: (String) -> Unit) { sinks.remove(s) }
+
+    /** Swift avisa de lo que hace la voz: «start», «word» o «end». */
+    fun deliver(event: String) { for (s in sinks.toList()) s(event) }
 }
 
 private class IosSpeaker : Speaker {
+    override var onEvent: ((SpeechEvent) -> Unit)? = null
+    private val sink: (String) -> Unit = { e ->
+        when (e) {
+            "start" -> onEvent?.invoke(SpeechEvent.Start)
+            "word" -> onEvent?.invoke(SpeechEvent.Word)
+            "end" -> onEvent?.invoke(SpeechEvent.End)
+        }
+    }
+    init { IosSpeechHooks.addSink(sink) }
+
     override fun speak(text: String, lang: String, rate: Float, pitch: Float) {
         IosSpeechHooks.handler?.invoke("speak\u001F$lang\u001F$rate\u001F$pitch\u001F$text")
     }
     override fun stop() { IosSpeechHooks.handler?.invoke("stop") }
-    override fun release() { IosSpeechHooks.handler?.invoke("stop") }
+    override fun release() { IosSpeechHooks.handler?.invoke("stop"); IosSpeechHooks.removeSink(sink) }
 }
 
 @Composable

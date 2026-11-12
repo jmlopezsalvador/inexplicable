@@ -89,6 +89,8 @@ fun ConfigScreen(
     var voiceReveal by remember { mutableStateOf(initial.voiceReveal) }
     var voiceRate by remember { mutableStateOf(initial.voiceRate / 100f) }
     var voicePitch by remember { mutableStateOf(initial.voicePitch / 100f) }
+    var speechFx by remember { mutableStateOf(initial.speechFx) }
+    var speechFxPct by remember { mutableStateOf(initial.speechFxPct / 100f) }
     // Escucha por voz
     var voiceListen by remember { mutableStateOf(initial.voiceListen) }
     var wakeRequired by remember { mutableStateOf(initial.wakeRequired) }
@@ -204,6 +206,9 @@ fun ConfigScreen(
                 Slider(voiceRate, { voiceRate = it }, valueRange = 0.5f..2f)
                 Label(t("Tono", "Pitch") + ": " + (voicePitch * 100).toInt() + "%")
                 Slider(voicePitch, { voicePitch = it }, valueRange = 0.5f..2f)
+                SwitchRow(speechFx, t("Los efectos reaccionan a la voz", "Effects react to the voice")) { speechFx = it }
+                Label(t("Intensidad de la reacción", "Reaction intensity") + ": " + (speechFxPct * 100).toInt() + "%")
+                Slider(speechFxPct, { speechFxPct = it }, valueRange = 0f..2f)
                 TextButton({
                     onTestVoice(t("Hola. Soy el lector de la baraja.", "Hello. I am the deck reader."), voiceRate, voicePitch)
                 }) { Text(t("Probar voz", "Test voice")) }
@@ -280,6 +285,7 @@ fun ConfigScreen(
                     soundOn = soundOn, soundVolume = (soundVolume * 100).toInt().coerceIn(0, 100),
                     voiceOn = voiceOn, voiceStatus = voiceStatus, voiceReveal = voiceReveal,
                     voiceRate = (voiceRate * 100).toInt().coerceIn(50, 200), voicePitch = (voicePitch * 100).toInt().coerceIn(50, 200),
+                    speechFx = speechFx, speechFxPct = (speechFxPct * 100).toInt().coerceIn(0, 200),
                     detTries = detTries.toIntOrNull()?.coerceIn(1, 20) ?: d.detTries,
                     detTolerancePct = detTol.toIntOrNull()?.coerceIn(0, 80) ?: d.detTolerancePct,
                     detIntervalMs = detInterval.toIntOrNull()?.coerceIn(100, 2000) ?: d.detIntervalMs,

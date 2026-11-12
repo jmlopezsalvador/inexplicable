@@ -106,7 +106,7 @@ internal class SceneAnim {
 @Composable
 fun DeckScene(
     stage: Stage, progress: Float, open: Float, level: Int,
-    bubble: String?, tapLabel: String, time: State<Float>, onOpen: () -> Unit,
+    bubble: String?, tapLabel: String, time: State<Float>, speech: SpeechFeedback, onOpen: () -> Unit,
     backImage: ImageBitmap? = null,
 ) {
     val pal = LocalPalette.current
@@ -134,8 +134,8 @@ fun DeckScene(
             drawTable(cam, pal.primary)
             drawFootprint(cam, stage, pal.primary)
             drawDeck(cam, backImage)
-            anim.step(t, stage, progress)
-            drawEffects(cam, stage, progress, open, level, t, pal, anim)
+            speech.step(t); anim.step(t, stage, progress)
+            drawEffects(cam, stage, progress, open, level, t, pal, anim, speech)
         }
 
         SceneOverlays(cam, size, stage, open, bubble, tapLabel, onOpen)
@@ -212,7 +212,7 @@ private class OffsetCamera(private val inner: SceneCamera, private val dx: Float
 fun PhotoScene(
     photo: ImageBitmap, corners: List<Offset>,
     stage: Stage, progress: Float, open: Float, level: Int,
-    bubble: String?, tapLabel: String, time: State<Float>, onOpen: () -> Unit,
+    bubble: String?, tapLabel: String, time: State<Float>, speech: SpeechFeedback, onOpen: () -> Unit,
 ) {
     val pal = LocalPalette.current
     var size by remember { mutableStateOf(IntSize(1, 1)) }
@@ -226,10 +226,10 @@ fun PhotoScene(
             val t = time.value
             drawRect(Color.Black)
             drawImage(photo, dstOffset = IntOffset(geo.ox.toInt(), geo.oy.toInt()), dstSize = IntSize(geo.w.toInt(), geo.h.toInt()))
-            anim.step(t, stage, progress)
+            speech.step(t); anim.step(t, stage, progress)
             if (cam != null) {
                 drawFootprint(cam, stage, pal.primary)
-                drawEffects(cam, stage, progress, open, level, t, pal, anim)
+                drawEffects(cam, stage, progress, open, level, t, pal, anim, speech)
             }
         }
         if (cam != null) SceneOverlays(cam, size, stage, open, bubble, tapLabel, onOpen)
@@ -381,14 +381,26 @@ private fun DrawScope.drawRing(cam: SceneCamera, r: Float, y: Float, startDeg: F
 }
 
 private fun DrawScope.drawEffects(cam: SceneCamera, stage: Stage, progress: Float, open: Float, level: Int, t: Float, pal: Palette,
-                                  anim: SceneAnim) {
+                                  anim: SceneAnim, speech: SpeechFeedback) {
     val ph = anim.clock.phase // tiempo «acelerado» acumulado: la velocidad cambia con suavidad
     val p = pal.primary; val s = pal.secondary; val a = pal.accent
+    val sk = speech.kick   // impulso de la última palabra (0..1)
+    val sl = speech.level  // intensidad mientras se habla (0..1)
 
-    // Anillos que rodean la baraja (nunca la atraviesan).
-    drawRing(cam, 9.5f, 0.2f, ph * 40f, 100f, p.copy(alpha = 0.9f), 3f)
-    drawRing(cam, 9.5f, 0.2f, ph * 40f + 180f, 70f, p.copy(alpha = 0.6f), 3f)
-    drawRing(cam, 7f, DECK_H + 2.5f, -ph * 100f, 220f, s.copy(alpha = 0.8f), 2.5f)
+    // Anillos que rodean la baraja (nunca la atraviesan). Con la voz se hinchan un poco y se avivan a cada palabra.
+    drawRing(cam, 9.5f * (1f + 0.04f * sk), 0.2f, ph * 40f, 100f, p.copy(alpha = (0.9f + 0.1f * sk).coerceAtMost(1f)), 3f + 2f * sk)
+    drawRing(cam, 9.5f * (1f + 0.04f * sk), 0.2f, ph * 40f + 180f, 70f, p.copy(alpha = 0.6f + 0.3f * sk), 3f + 2f * sk)
+    drawRing(cam, 7f * (1f + 0.05f * sk), DECK_H + 2.5f, -ph * 100f, 220f, s.copy(alpha = 0.8f), 2.5f + 1.5f * sk)
+    // Voz: onda sobre la mesa por palabra y visualizador de barras alrededor de la baraja (siempre fuera de su huella).
+    if (sk > 0.02f) drawRing(cam, 6f + 10f * (1f - sk), 0.25f, 0f, 360f, a.copy(alpha = 0.75f * sk), 3f)
+    if (sl > 0.02f) {
+        for (i in 0 until 40) {
+            val ang = i * TAU / 40f
+            val h = 0.3f + 2.6f * sl * abs(sin(t * 9f + i * 1.7f) * 0.6f + sin(t * 5.3f + i * 0.9f) * 0.4f)
+            val bx = 8f * cos(ang); val bz = 8f * sin(ang)
+            line(cam, V3(bx, 0.3f, bz), V3(bx, 0.3f + h, bz), (if (i % 3 == 0) a else p).copy(alpha = 0.4f + 0.55f * sl), 3f)
+        }
+    }
     drawRing(cam, 5f, DECK_H + 5f, t * 60f, 120f, p.copy(alpha = 0.5f), 2f)
     if (level >= 2) {
         drawRing(cam, 12.5f, 0.15f, -t * 25f, 300f, s.copy(alpha = 0.35f), 1.5f)
@@ -418,12 +430,12 @@ private fun DrawScope.drawEffects(cam: SceneCamera, stage: Stage, progress: Floa
             val yFree = (y0 + 0.6f * sin(t + phase)) * squeeze
             val rGather = 2.6f + 3.4f * hash01(i, 5)
             val yGather = CUBE_Y + 2.2f * sin(ang * 1.7f + phase) * hash01(i, 6)
-            val rr = lerp(rFree, rGather, g)
+            val rr = lerp(rFree, rGather, g) * (1f + 0.07f * sk) // con la voz las partículas «respiran» hacia fuera
             val px = rr * cos(ang); val pz = rr * sin(ang)
             var py = lerp(yFree, yGather, g)
             if (py < DECK_H + 0.3f && abs(px) < DECK_W / 2 + 0.5f && abs(pz) < DECK_D / 2 + 0.5f) py = DECK_H + 0.3f // nunca dentro de la baraja
             val pr = cam.project(V3(px, py, pz)) ?: continue
-            val rad = (0.11f * cam.focal / pr.depth * (1f - tr * 0.18f)).coerceIn(1f, 6f)
+            val rad = (0.11f * cam.focal / pr.depth * (1f - tr * 0.18f) * (1f + 0.8f * sk)).coerceIn(1f, 8f)
             drawCircle(col.copy(alpha = (0.85f - tr * 0.2f) * (if (stage == Stage.Revealed) (1f - 0.5f * open) else 1f)), rad, Offset(pr.x, pr.y))
         }
     }

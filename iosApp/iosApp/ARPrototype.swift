@@ -36,6 +36,8 @@ struct DetConfig {
     var analyzeSeconds: Double = 2.6
     var openSeconds: Double = 1.4
     var soundOn = true
+    var speechFx = true
+    var speechGain: Float = 1
     var primary = UIColor(red: 0.24, green: 0.86, blue: 1.0, alpha: 1)
     var secondary = UIColor(red: 0.24, green: 0.48, blue: 1.0, alpha: 1)
     var accent = UIColor(red: 1.0, green: 0.78, blue: 0.34, alpha: 1)
@@ -58,6 +60,8 @@ struct DetConfig {
         c.analyzeSeconds = Double(int("analyzeMs", 2600)) / 1000
         c.openSeconds = Double(int("openMs", 1400)) / 1000
         c.soundOn = bool("soundOn", true)
+        c.speechFx = bool("speechFx", true)
+        c.speechGain = Float(int("speechFxPct", 100)) / 100
         c.primary = color("colorPrimary", 0x3DDCFF)
         c.secondary = color("colorSecondary", 0x3D7BFF)
         c.accent = color("colorAccent", 0xFFC857)
@@ -267,9 +271,22 @@ struct ARSceneView: UIViewRepresentable {
             super.init()
             model.onAnalyze = { [weak self] in self?.startAnalysis() }
             model.onNext = { [weak self] in self?.nextPhase() }
+            SpeechBridge.onEvent = { [weak self] event in self?.speechEvent(event) }
+        }
+
+        /// La voz habla: cada palabra da un pulso a los anillos y a las partículas, y una onda sobre la mesa.
+        private func speechEvent(_ event: String) {
+            guard cfg.speechFx, cfg.speechGain > 0, placed, event == "word" else { return }
+            let g = CGFloat(cfg.speechGain)
+            let ringPulse = SCNAction.sequence([.scale(to: 1 + 0.06 * g, duration: 0.05), .scale(to: 1, duration: 0.22)])
+            let particlePulse = SCNAction.sequence([.scale(to: 1 + 0.12 * g, duration: 0.05), .scale(to: 1, duration: 0.28)])
+            ringsRoot?.runAction(ringPulse, forKey: "speech")
+            particlesRoot?.runAction(particlePulse, forKey: "speech")
+            addShock(y: 0.012, maxScale: 3 + 2 * g, duration: 0.5, color: cfg.accent)
         }
 
         func shutdown() {
+            SpeechBridge.onEvent = nil
             generation += 1
             analysisTimer?.invalidate()
             send("analyzing_off")

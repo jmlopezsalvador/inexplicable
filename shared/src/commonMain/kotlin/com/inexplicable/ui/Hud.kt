@@ -77,11 +77,14 @@ fun hudRadius(w: Float, h: Float) = minOf(w, h) * 0.34f
  * 3 = + anillos gigantes que salen de la pantalla, radar, barras de datos y esquinas. `open` es 0..1 al abrir el resultado.
  */
 @Composable
-fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: State<Float>) {
+fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: State<Float>, speech: SpeechFeedback) {
     val pal = LocalPalette.current
     val clock = remember { MotionClock() }
     Canvas(Modifier.fillMaxSize()) {
         val t = time.value
+        speech.step(t)
+        val sk = speech.kick     // impulso de la última palabra (0..1)
+        val sl = speech.level    // intensidad mientras se habla (0..1)
         val busy = stage == Stage.Analyzing || stage == Stage.Connecting
         // `tk` es el tiempo «acelerado»: ya incluye el cambio de ritmo, suavizado (sin saltos de ángulo).
         val tk = clock.step(t, busy, appear = stage == Stage.Result)
@@ -94,10 +97,11 @@ fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: Stat
         if (level >= 3) drawBigRings(c, r, tk, k, p, s)
         if (level >= 3) drawRadar(c, r, tk, k, p)
 
-        // Anillos básicos.
-        ring(c, r, tk * 26f, 100f, 3f, p.copy(alpha = 0.9f))
-        ring(c, r, tk * 26f + 180f, 70f, 3f, p.copy(alpha = 0.6f))
-        ring(c, r * 0.82f, -tk * 72f, 220f, 2f, s.copy(alpha = 0.8f))
+        // Anillos básicos (con la voz crecen un poco y se avivan a cada palabra).
+        val rv = r * (1f + 0.025f * sk)
+        ring(c, rv, tk * 26f, 100f, 3f + 3f * sk, p.copy(alpha = (0.9f + 0.1f * sk).coerceAtMost(1f)))
+        ring(c, rv, tk * 26f + 180f, 70f, 3f + 2f * sk, p.copy(alpha = 0.6f + 0.3f * sk))
+        ring(c, r * 0.82f * (1f + 0.03f * sk), -tk * 72f, 220f, 2f + 2f * sk, s.copy(alpha = 0.8f))
         ring(c, r * 0.64f, t * 52f, 360f, 1.5f, p.copy(alpha = 0.45f), dash = true)
         ring(c, r * 1.12f, 0f, 360f, 1f, p.copy(alpha = 0.2f))
         if (stage == Stage.Analyzing) ring(c, r * 1.2f, -90f, 360f * progress, 4f, a)
@@ -135,9 +139,25 @@ fun HudCanvas(stage: Stage, progress: Float, open: Float, level: Int, time: Stat
             drawCircle(a.copy(alpha = 0.9f * (1f - open)), r * (0.2f + 1.6f * open), c, style = Stroke(6f * (1f - open) + 1f))
             drawCircle(p.copy(alpha = 0.5f * (1f - open)), r * (0.1f + 1.0f * open), c, style = Stroke(3f))
         }
+        // Voz: visualizador de barras alrededor del núcleo y onda por palabra.
+        if (sl > 0.02f) {
+            val n = 36
+            for (i in 0 until n) {
+                val ang = i * TAU / n
+                val h = r * (0.03f + 0.16f * sl * abs(sin(t * 9f + i * 1.7f) * 0.6f + sin(t * 5.3f + i * 0.9f) * 0.4f))
+                val r0 = r * 0.13f
+                drawLine(
+                    (if (i % 3 == 0) a else p).copy(alpha = (0.35f + 0.6f * sl).coerceAtMost(1f)),
+                    Offset(c.x + r0 * cos(ang), c.y + r0 * sin(ang)),
+                    Offset(c.x + (r0 + h) * cos(ang), c.y + (r0 + h) * sin(ang)),
+                    3f, StrokeCap.Round,
+                )
+            }
+        }
+        if (sk > 0.02f) drawCircle(a.copy(alpha = 0.7f * sk), r * (0.14f + 0.45f * (1f - sk)), c, style = Stroke(3f))
         // Núcleo.
         val core = when (stage) { Stage.Ready, Stage.Revealed -> 0.55f; Stage.Result -> 0.9f; else -> 0.25f }
-        drawCircle(p.copy(alpha = core), r * 0.07f, c)
+        drawCircle(p.copy(alpha = (core + 0.4f * sk).coerceAtMost(1f)), r * 0.07f * (1f + 0.9f * sk), c)
     }
 }
 

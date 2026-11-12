@@ -50,6 +50,10 @@ se dibujan sobre la foto (`PhotoScene`): `Photo.kt` calcula la homografía y la 
 (igual que sonido/voz: puente de texto `IosCameraHooks`). **Escucha por voz** (`Listener`, ajuste `voiceListen`): `SpeechRecognizer` en Android, `Listen.swift`
 (`SFSpeechRecognizer`) en iOS; lo oído solo cuenta si encaja con la orden esperada (`hear`) y se ignora mientras la app habla. Permisos: CAMERA y RECORD_AUDIO
 (manifiesto de Android; `Info.plist` vía `project.yml` en iOS).
+**Reacción a la voz:** `Speaker.onEvent` avisa de `Start`/`Word`/`End` (Android: `UtteranceProgressListener`; iOS: delegado de `AVSpeechSynthesizer` →
+`IosSpeechHooks.deliver`). `SpeechFeedback` (en `Speech.kt`) los convierte en `kick` (impulso por palabra) y `level` (mientras habla), con pulsos sintéticos si no
+llegan palabras reales; HUD, Baraja 3D, modo Foto y la RA de iOS reaccionan (anillos, partículas, visualizador de barras y ondas). Ajustes `speechFx` y `speechFxPct`.
+Los eventos reales también afinan el silenciado del micrófono (`mutedUntil` en `App.kt`).
 **Sonido y voz:** `Sound.kt` (sintetizador común `Synth`, sin ficheros; Android lo reproduce con `AudioTrack`, iOS lo replica en Swift en
 `SoundEngine.swift`, hay que mantener ambos iguales) y `Speech.kt` (TTS: `TextToSpeech` en Android; en iOS Kotlin manda órdenes de texto a
 `SpeechBridge` en Swift mediante `IosSpeechHooks`/`IosSoundHooks`). Todo lo nativo de iOS que no se pueda hacer en Kotlin se hace así: un

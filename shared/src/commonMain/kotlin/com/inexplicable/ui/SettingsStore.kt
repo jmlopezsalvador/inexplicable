@@ -60,6 +60,8 @@ data class AppSettings(
     val voiceReveal: Boolean = true,  // lee la predicción al abrir el resultado
     val voiceRate: Int = 100,         // velocidad en % (50..200)
     val voicePitch: Int = 100,        // tono en % (50..200)
+    val speechFx: Boolean = true,     // los efectos reaccionan a la voz (pulsos al decir cada palabra)
+    val speechFxPct: Int = 100,       // intensidad de esa reacción en % (0..200)
     val control: String = CONTROL_BUTTONS, // cómo avanza el efecto (se aplica al empezar un juego nuevo)
     val voiceListen: Boolean = false, // en el control por conversación: escuchar al mago con el micrófono
     val wakeRequired: Boolean = true, // exigir la palabra «Jarvis» en las órdenes (no en el saludo)
@@ -107,6 +109,8 @@ class SettingsStore(private val prefs: KeyValueStore) {
             voiceReveal = prefs.getBoolean("voiceReveal", d.voiceReveal),
             voiceRate = prefs.getLong("voiceRate", d.voiceRate.toLong()).toInt().coerceIn(50, 200),
             voicePitch = prefs.getLong("voicePitch", d.voicePitch.toLong()).toInt().coerceIn(50, 200),
+            speechFx = prefs.getBoolean("speechFx", d.speechFx),
+            speechFxPct = prefs.getLong("speechFxPct", d.speechFxPct.toLong()).toInt().coerceIn(0, 200),
             control = prefs.getString("control")?.takeIf { it == CONTROL_BUTTONS || it == CONTROL_SCRIPT } ?: d.control,
             voiceListen = prefs.getBoolean("voiceListen", d.voiceListen),
             wakeRequired = prefs.getBoolean("wakeRequired", d.wakeRequired),
@@ -144,6 +148,8 @@ class SettingsStore(private val prefs: KeyValueStore) {
         prefs.putBoolean("voiceReveal", s.voiceReveal)
         prefs.putLong("voiceRate", s.voiceRate.toLong())
         prefs.putLong("voicePitch", s.voicePitch.toLong())
+        prefs.putBoolean("speechFx", s.speechFx)
+        prefs.putLong("speechFxPct", s.speechFxPct.toLong())
         prefs.putString("control", s.control)
         prefs.putBoolean("voiceListen", s.voiceListen)
         prefs.putBoolean("wakeRequired", s.wakeRequired)
